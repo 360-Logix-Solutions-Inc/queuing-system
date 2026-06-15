@@ -35,13 +35,23 @@ function spellTicket(queueNumber) {
   return `${spelledPrefix} ${number || ""}`.trim();
 }
 
+// Tagalog/abakada pronunciation for letters the TTS would otherwise read with
+// an English letter-name (e.g. "W" as "double-u"). Spelled phonetically so the
+// Filipino — or English-fallback — voice says the Tagalog sound.
+const FIL_LETTER_SOUND = {
+  W: "wah",
+};
+
 function spellTicketFilipino(queueNumber) {
   if (!queueNumber) return "";
   const [prefix, number] = String(queueNumber).split("-");
-  // Use periods between letters to force TTS to read each one as a letter
-  // (e.g., "B.P." → "Bee Pee", not the word "bi pi"). Numbers stay as-is so
-  // they read as digits.
-  const spelledPrefix = (prefix || "").split("").map((c) => `${c}.`).join(" ");
+  // Periods between letters force TTS to read each as a letter (e.g. "B.P." →
+  // "Bee Pee"). Letters in FIL_LETTER_SOUND use a Tagalog phonetic spelling so
+  // they are pronounced the Filipino way. Numbers stay as-is to read as digits.
+  const spelledPrefix = (prefix || "")
+    .split("")
+    .map((c) => FIL_LETTER_SOUND[c.toUpperCase()] || `${c}.`)
+    .join(" ");
   return `${spelledPrefix} ${number || ""}`.trim();
 }
 

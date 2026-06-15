@@ -10,6 +10,7 @@ import {
   SERVICES,
 } from "../lib/firebaseClient";
 import { printTicket } from "../lib/queueApp";
+import { notifyTicketSms } from "../lib/smsClient";
 
 function formatStartTime(d) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -44,6 +45,7 @@ export default function KioskApp() {
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
   const [message, setMessage] = useState("");
   const [setupError, setSetupError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -120,8 +122,27 @@ export default function KioskApp() {
     setCustomerName("");
     setPhone("");
     setConsent(false);
+    setShowConsent(false);
     setMessage("");
     setStep("details");
+  }
+
+  // Gate submission on Data Privacy Act consent ONLY when the customer entered a
+  // name or phone. Blank fields = nothing to protect, so no overlay — they fall
+  // in line straight away.
+  function handleFallInLine() {
+    const hasPersonalInfo = Boolean(customerName.trim() || phone.trim());
+    if (hasPersonalInfo && !consent) {
+      setShowConsent(true);
+      return;
+    }
+    submitTicket();
+  }
+
+  function acceptConsent() {
+    setConsent(true);
+    setShowConsent(false);
+    submitTicket();
   }
 
   async function submitTicket() {
@@ -135,6 +156,17 @@ export default function KioskApp() {
         customerName,
         phone,
         priorityType,
+      });
+
+      // Fire-and-forget confirmation SMS (skipped server-side if no phone/key).
+      notifyTicketSms({
+        type: "confirm",
+        clientId,
+        name: ticket.customerName,
+        phone: ticket.phone,
+        queueNumber: ticket.queueNumber,
+        serviceName: ticket.serviceName,
+        orgName: ticket.orgName || orgName,
       });
 
       let printResult = { success: true, failureReason: null };
@@ -167,6 +199,7 @@ export default function KioskApp() {
     setCustomerName("");
     setPhone("");
     setConsent(false);
+    setShowConsent(false);
     setMessage("");
   }
 
@@ -282,29 +315,48 @@ export default function KioskApp() {
                 Pregnant
               </button>
             </div>
-            {(customerName.trim() || phone.trim()) ? (
-              <label className="consent-row">
-                <input
-                  type="checkbox"
-                  checked={consent}
-                  onChange={(event) => setConsent(event.target.checked)}
-                />
-                <span className="consent-text">
-                  I consent to the collection and processing of my personal information in compliance with the
-                  <strong> Data Privacy Act of 2012 (RA 10173)</strong>, for queue management purposes only.
-                </span>
-              </label>
-            ) : null}
             <button
               className="tap-button full"
-              disabled={submitting || ((customerName.trim() || phone.trim()) && !consent)}
-              onClick={submitTicket}
+              disabled={submitting}
+              onClick={handleFallInLine}
             >
               {submitting ? "Please wait..." : "Fall in Line"}
             </button>
             {message ? <div className="notice error">{message}</div> : null}
           </div>
         </div>
+
+        {showConsent ? (
+          <div className="consent-overlay" role="dialog" aria-modal="true" aria-labelledby="dpaTitle">
+            <div className="consent-modal">
+              <div className="consent-modal-icon" aria-hidden="true">🔒</div>
+              <h2 id="dpaTitle" className="consent-modal-title">Data Privacy Notice</h2>
+              <p className="consent-modal-text">
+                By providing your name and/or phone number, you consent to the collection and
+                processing of your personal information in compliance with the
+                <strong> Data Privacy Act of 2012 (RA 10173)</strong>. Your information will be
+                used <strong>only for queue management and SMS notifications</strong>, and will
+                not be shared with third parties.
+              </p>
+              <div className="consent-modal-actions">
+                <button
+                  className="btn consent-decline"
+                  onClick={() => setShowConsent(false)}
+                  disabled={submitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="tap-button consent-accept"
+                  onClick={acceptConsent}
+                  disabled={submitting}
+                >
+                  {submitting ? "Please wait..." : "I Agree & Continue"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </main>
     );
   }
