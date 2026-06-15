@@ -18,6 +18,25 @@ import {
   sweepQueueTimeouts,
 } from "../lib/firebaseClient";
 import { openDisplay } from "../lib/queueApp";
+import { notifyTicketSms } from "../lib/smsClient";
+
+// Fire the "now serving you" SMS for a freshly called ticket. Centralized so
+// every place that calls a ticket (idle auto-caller, complete-then-next) sends
+// a consistent alert. callNext returns the ticket only to the winning client,
+// so exactly one SMS goes out per ticket even with multiple counters.
+function notifyServing(ticket, orgName, clientId) {
+  if (!ticket) return;
+  notifyTicketSms({
+    type: "serving",
+    clientId,
+    name: ticket.customerName,
+    phone: ticket.phone,
+    queueNumber: ticket.queueNumber,
+    serviceName: ticket.serviceName,
+    counterLabel: ticket.counterLabel,
+    orgName,
+  });
+}
 
 export default function CounterApp() {
   const [orgName, setOrgName] = useState("");
@@ -144,7 +163,9 @@ export default function CounterApp() {
       .filter((counter) => !counter.paused)
       .filter((counter) => !device?.counterNo || Number(counter.counterNo) === Number(device.counterNo))
       .forEach((counter) => {
-        callNext(counter.counterNo, clientId).catch(() => {});
+        callNext(counter.counterNo, clientId)
+          .then((served) => notifyServing(served, orgName, clientId))
+          .catch(() => {});
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idleKey, waiting.length, clientId]);
@@ -180,6 +201,7 @@ export default function CounterApp() {
       await completeCounter(counterNo, clientId);
       const nextTicket = await callNext(counterNo, clientId).catch(() => null);
       if (nextTicket) {
+        notifyServing(nextTicket, orgName, clientId);
         setNotice(`Counter ${counterNo} completed. Now serving ${nextTicket.queueNumber}.`);
       } else {
         setNotice(`Counter ${counterNo} completed.`);

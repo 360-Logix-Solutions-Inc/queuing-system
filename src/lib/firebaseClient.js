@@ -548,7 +548,12 @@ export async function callNext(counterNo, clientId = DEFAULT_CLIENT_ID) {
           { merge: true }
         );
 
-        return { id: candidate.id, ...ticketData, counterNo };
+        return {
+          id: candidate.id,
+          ...ticketData,
+          counterNo,
+          counterLabel: counterSnap.data().label || `Counter ${counterNo}`,
+        };
       });
 
       if (result) return result;
@@ -662,6 +667,62 @@ export function listenActivityLogs(clientId, callback, max = 100) {
   } else {
     initFirebaseNoEnsure().then(({ db: readyDb }) => attach(readyDb)).catch((err) => {
       if (typeof console !== "undefined") console.warn("[activity] listener init failed:", err?.message || err);
+    });
+  }
+
+  return () => {
+    cancelled = true;
+    if (unsubscribe) unsubscribe();
+  };
+}
+
+// ====== SMS TEMPLATES + LOGS ======
+
+export async function updateClientSmsTemplates(clientId, templates, actor = null) {
+  const normalizedClientId = normalizeClientId(clientId);
+  const { db } = await initFirebaseNoEnsure();
+  await updateDoc(doc(db, "clients", normalizedClientId), {
+    smsTemplates: {
+      confirm: String(templates?.confirm || ""),
+      serving: String(templates?.serving || ""),
+      near: String(templates?.near || ""),
+    },
+    updatedAt: serverTimestamp(),
+  });
+  logActivity(normalizedClientId, "sms.templates.updated", {}, actor);
+}
+
+export function listenSmsLogs(clientId, callback, max = 100) {
+  const normalizedClientId = normalizeClientId(clientId);
+  let unsubscribe = null;
+  let cancelled = false;
+
+  function attach(readyDb) {
+    if (cancelled) return;
+    const q = query(
+      collection(readyDb, "smsLogs"),
+      where("clientId", "==", normalizedClientId)
+    );
+    unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const rows = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => timestampMillis(b.createdAt) - timestampMillis(a.createdAt))
+          .slice(0, max);
+        callback(rows);
+      },
+      (err) => {
+        if (typeof console !== "undefined") console.warn("[sms-logs] listener error:", err?.message || err);
+      }
+    );
+  }
+
+  if (db) {
+    attach(db);
+  } else {
+    initFirebaseNoEnsure().then(({ db: readyDb }) => attach(readyDb)).catch((err) => {
+      if (typeof console !== "undefined") console.warn("[sms-logs] listener init failed:", err?.message || err);
     });
   }
 

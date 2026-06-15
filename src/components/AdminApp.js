@@ -12,10 +12,13 @@ import {
   deleteAdmin,
   deletePairing,
   deleteService,
+  getClientInfo,
   getTicketsInRange,
   initFirebase,
   listAdmins,
   listenActivityLogs,
+  listenSmsLogs,
+  updateClientSmsTemplates,
   listenAllServices,
   listenAllTickets,
   listenCountersForClient,
@@ -34,6 +37,7 @@ import {
   updatePairingServices,
   updateService,
 } from "../lib/firebaseClient";
+import { DEFAULT_SMS_TEMPLATES, SMS_TYPES, renderTemplate, SMS_PREVIEW_VARS } from "../lib/smsTemplates";
 
 export default function AdminApp() {
   const [session, setSession] = useState(null);
@@ -324,18 +328,30 @@ export default function AdminApp() {
         </div>
         <nav className="sidebar-nav">
           {[
-            ["overview", "Overview", iconOverview()],
-            ["activity", "Activity", iconActivity()],
-            ["setup", "Setup", iconServices()],
-            ["staff", "Staff", iconStaff()],
-            ["pairing", "Pairing", iconPairing()],
-            ["launch", "Launch", iconLaunch()],
-            ["branding", "Branding", iconBranding()],
-            ["settings", "Settings", iconSettings()],
-          ].map(([id, label, icon]) => (
-            <button className={`sidebar-link ${activePage === id ? "active" : ""}`} key={id} onClick={() => setActivePage(id)} title={label}>
-              <span className="sidebar-icon">{icon}</span><span className="sidebar-label">{label}</span>
-            </button>
+            ["Operations", [
+              ["overview", "Overview", iconOverview()],
+              ["activity", "Activity", iconActivity()],
+              ["launch", "Launch", iconLaunch()],
+            ]],
+            ["Configuration", [
+              ["setup", "Services & Counters", iconServices()],
+              ["pairing", "Pairing", iconPairing()],
+              ["sms", "SMS / Notifications", iconSms()],
+              ["branding", "Branding", iconBranding()],
+            ]],
+            ["Account", [
+              ["staff", "Staff", iconStaff()],
+              ["settings", "Settings", iconSettings()],
+            ]],
+          ].map(([group, items]) => (
+            <div className="sidebar-group" key={group}>
+              <div className="sidebar-group-title">{group}</div>
+              {items.map(([id, label, icon]) => (
+                <button className={`sidebar-link ${activePage === id ? "active" : ""}`} key={id} onClick={() => setActivePage(id)} title={label}>
+                  <span className="sidebar-icon">{icon}</span><span className="sidebar-label">{label}</span>
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
         <button className="sidebar-logout" onClick={logout} title="Logout"><span className="sidebar-icon">{iconLogout()}</span><span className="sidebar-label">Logout</span></button>
@@ -485,7 +501,7 @@ export default function AdminApp() {
               </a>
               <a className="launch-card counter" href={`/counter?client=${session.clientId}`} target="_blank" rel="noreferrer">
                 <div className="launch-card-label">Staff control</div>
-                <div className="launch-card-title">Open Counter</div>
+                <div className="launch-card-title">Open Counter (all)</div>
                 <div className="launch-card-hint">Recall, complete, manage queue</div>
                 <div className="launch-card-arrow">→</div>
               </a>
@@ -496,6 +512,31 @@ export default function AdminApp() {
                 <div className="launch-card-arrow">→</div>
               </a>
             </div>
+
+            <h3 className="panel-title" style={{ fontSize: 15, marginTop: 24 }}>Single-Counter Screens</h3>
+            <p className="panel-sub">Open a screen that shows <strong>only one counter&apos;s</strong> queue — ideal for each counter station.</p>
+            {counters.length === 0 ? (
+              <p className="panel-sub">No counters yet. Add counters in Services &amp; Counters first.</p>
+            ) : (
+              <div className="counter-launch-grid">
+                {counters
+                  .slice()
+                  .sort((a, b) => Number(a.counterNo) - Number(b.counterNo))
+                  .map((counter) => (
+                    <a
+                      key={counter.id || counter.counterNo}
+                      className="counter-launch-link"
+                      href={`/counter?client=${session.clientId}&counter=${counter.counterNo}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <span className="counter-launch-no">{counter.counterNo}</span>
+                      <span className="counter-launch-label">{counter.label || `Counter ${counter.counterNo}`}</span>
+                      <span className="launch-card-arrow">→</span>
+                    </a>
+                  ))}
+              </div>
+            )}
           </section>
         ) : null}
 
@@ -509,6 +550,10 @@ export default function AdminApp() {
               } catch (err) { setError(err.message); }
             }}
           />
+        ) : null}
+
+        {activePage === "sms" ? (
+          <SmsPage session={session} onError={(m) => { setError(m); setNotice(""); }} />
         ) : null}
 
         {activePage === "settings" ? (
@@ -603,6 +648,13 @@ function iconSettings() {
     </svg>
   );
 }
+function iconSms() {
+  return (
+    <svg {...SVG_PROPS}>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
+  );
+}
 function Toast({ message, type, onClose }) {
   if (!message) return null;
   const titles = { success: "Success", error: "Error", info: "Info" };
@@ -659,6 +711,7 @@ function getAdminTitle(activePage) {
     setup: "Services & Counters",
     staff: "Counter Staff",
     pairing: "Pairing Codes",
+    sms: "SMS / Notifications",
     launch: "Launch Screens",
     branding: "Branding",
     settings: "Settings",
@@ -1224,6 +1277,205 @@ function AdminSettings({ session, onUpdated, onError }) {
           <button className="btn primary" disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
         </div>
       </form>
+    </section>
+  );
+}
+
+function SmsPage({ session, onError }) {
+  const [tab, setTab] = useState("templates");
+  return (
+    <div className="overview-wrap">
+      <div className="sms-subtabs">
+        <button
+          type="button"
+          className={`sms-subtab ${tab === "templates" ? "active" : ""}`}
+          onClick={() => setTab("templates")}
+        >
+          Message Format
+        </button>
+        <button
+          type="button"
+          className={`sms-subtab ${tab === "logs" ? "active" : ""}`}
+          onClick={() => setTab("logs")}
+        >
+          Logs
+        </button>
+      </div>
+      {tab === "templates"
+        ? <SmsTemplatesPanel session={session} onError={onError} />
+        : <SmsLogsPanel session={session} />}
+    </div>
+  );
+}
+
+function SmsTemplatesPanel({ session, onError }) {
+  const [templates, setTemplates] = useState(DEFAULT_SMS_TEMPLATES);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [flash, setFlash] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getClientInfo(session.clientId)
+      .then((info) => {
+        if (cancelled) return;
+        const t = info?.smsTemplates || {};
+        setTemplates({
+          confirm: t.confirm || DEFAULT_SMS_TEMPLATES.confirm,
+          serving: t.serving || DEFAULT_SMS_TEMPLATES.serving,
+          near: t.near || DEFAULT_SMS_TEMPLATES.near,
+        });
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [session.clientId]);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await updateClientSmsTemplates(session.clientId, templates, session);
+      setFlash(true);
+      setTimeout(() => setFlash(false), 2000);
+    } catch (err) {
+      onError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function resetOne(key) {
+    setTemplates((prev) => ({ ...prev, [key]: DEFAULT_SMS_TEMPLATES[key] }));
+  }
+
+  if (loading) {
+    return (
+      <section className="panel">
+        <h2 className="panel-title">SMS Message Format</h2>
+        <p className="panel-sub">Loading templates…</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2 className="panel-title">SMS Message Format</h2>
+        {flash ? <span className="panel-meta" style={{ color: "var(--color-success)" }}>Saved ✓</span> : null}
+      </div>
+      <p className="panel-sub">
+        Customize the SMS sent to customers. Use the <strong>placeholders</strong> below — they get
+        replaced with the real values when each message is sent.
+      </p>
+      <div className="sms-template-list">
+        {SMS_TYPES.map((cfg) => (
+          <div className="sms-template" key={cfg.key}>
+            <div className="sms-template-head">
+              <div>
+                <strong>{cfg.label}</strong>
+                <span className="sms-template-hint">{cfg.hint}</span>
+              </div>
+              <button type="button" className="btn ghost btn-sm" onClick={() => resetOne(cfg.key)}>Reset</button>
+            </div>
+            <textarea
+              className="sms-textarea"
+              rows={4}
+              value={templates[cfg.key]}
+              onChange={(e) => setTemplates((prev) => ({ ...prev, [cfg.key]: e.target.value }))}
+            />
+            <div className="sms-placeholders">
+              {cfg.placeholders.map((p) => (
+                <button
+                  type="button"
+                  className="sms-chip"
+                  key={p}
+                  onClick={() => setTemplates((prev) => ({ ...prev, [cfg.key]: `${prev[cfg.key]}${p}` }))}
+                  title={`Insert ${p}`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <div className="sms-preview">
+              <span className="sms-preview-label">Preview</span>
+              <pre className="sms-preview-text">{renderTemplate(templates[cfg.key], SMS_PREVIEW_VARS)}</pre>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="form-actions">
+        <button className="btn primary" disabled={saving} onClick={handleSave}>
+          {saving ? "Saving…" : "Save templates"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function smsLogTime(value) {
+  const ms = value?.toMillis ? value.toMillis() : (value?.seconds ? value.seconds * 1000 : 0);
+  if (!ms) return "—";
+  return new Date(ms).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function SmsLogsPanel({ session }) {
+  const [logs, setLogs] = useState([]);
+  const [filter, setFilter] = useState("all");
+
+  useEffect(() => {
+    const unsub = listenSmsLogs(session.clientId, setLogs, 200);
+    return () => unsub?.();
+  }, [session.clientId]);
+
+  const typeLabel = { confirm: "Confirmation", serving: "Now serving", near: "Near turn" };
+  const shown = filter === "all" ? logs : logs.filter((l) => l.status === filter);
+  const sentCount = logs.filter((l) => l.status === "sent").length;
+  const failedCount = logs.filter((l) => l.status === "failed").length;
+
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2 className="panel-title">SMS Logs</h2>
+        <span className="panel-meta">{sentCount} sent · {failedCount} failed</span>
+      </div>
+      <p className="panel-sub">Recent SMS sent by the system (latest 200).</p>
+      <div className="sms-log-filters">
+        {["all", "sent", "failed"].map((f) => (
+          <button
+            key={f}
+            type="button"
+            className={`btn btn-sm ${filter === f ? "primary" : "ghost"}`}
+            onClick={() => setFilter(f)}
+          >
+            {f === "all" ? "All" : f === "sent" ? "Sent" : "Failed"}
+          </button>
+        ))}
+      </div>
+      {shown.length === 0 ? (
+        <p className="panel-sub" style={{ marginTop: 12 }}>No SMS logs yet.</p>
+      ) : (
+        <div className="sms-log-table">
+          <div className="sms-log-row sms-log-head">
+            <span>Time</span><span>Type</span><span>Number</span><span>Queue</span><span>Status</span>
+          </div>
+          {shown.map((log) => (
+            <div className="sms-log-row" key={log.id}>
+              <span>{smsLogTime(log.createdAt)}</span>
+              <span>{typeLabel[log.type] || log.type}</span>
+              <span>{log.phone}</span>
+              <span>{log.queueNumber || "—"}</span>
+              <span>
+                <span className={`sms-status sms-status-${log.status}`}>
+                  {log.status === "sent" ? "Sent" : "Failed"}
+                </span>
+                {log.status === "failed" && log.error ? (
+                  <span className="sms-log-error" title={log.error}> · {log.error.slice(0, 40)}</span>
+                ) : null}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
