@@ -26,6 +26,55 @@ function readRuntimeConfig() {
 
 const runtime = readRuntimeConfig();
 
+// Parse a .env file into a plain object. Minimal dotenv-compatible parser so we
+// don't need a runtime dependency. Supports KEY=VALUE lines, optional quotes,
+// `export ` prefixes, and `#` comments.
+function parseEnvFile(filePath) {
+  const out = {};
+  let text;
+  try {
+    text = fs.readFileSync(filePath, "utf8");
+  } catch (_) {
+    return out;
+  }
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const withoutExport = line.replace(/^export\s+/, "");
+    const eq = withoutExport.indexOf("=");
+    if (eq === -1) continue;
+    const key = withoutExport.slice(0, eq).trim();
+    if (!key) continue;
+    let value = withoutExport.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+// In the packaged app the Next server runs with cwd `resources/app`, but the
+// .env file is shipped to `resources/.env` (extraResources), so Next's built-in
+// .env auto-loading never finds it. Locate the .env ourselves so we can inject
+// it into the spawned server's environment.
+function loadServerEnv() {
+  const candidates = [];
+  if (!isDev) {
+    candidates.push(path.join(path.dirname(app.getPath("exe")), ".env"));
+    candidates.push(path.join(process.resourcesPath, ".env"));
+    candidates.push(path.join(process.resourcesPath, "app", ".env"));
+  }
+  candidates.push(path.join(__dirname, "..", ".env"));
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return parseEnvFile(p);
+  }
+  return {};
+}
+
 const REMOTE_URL = process.env.ELECTRON_REMOTE_URL || runtime.remoteUrl || "";
 const DEV_URL = process.env.ELECTRON_DEV_URL || runtime.devUrl || "http://localhost:3000";
 const STARTUP_PATH = process.env.ELECTRON_STARTUP_PATH || runtime.startupPath || "/kiosk";
@@ -41,10 +90,25 @@ function startNextServerIfNeeded() {
   if (isDev) return;
   if (USE_REMOTE) return; // No local server when loading a remote URL
   const nextBinary = path.join(process.resourcesPath, "app", "node_modules", "next", "dist", "bin", "next");
-  nextProcess = spawn("node", [nextBinary, "start", "-p", "3000"], {
+  const fileEnv = loadServerEnv();
+  // Log the Next server's output next to the app so kiosk issues are diagnosable.
+  let stdio = "ignore";
+  try {
+    const logPath = path.join(app.getPath("userData"), "next-server.log");
+    const fd = fs.openSync(logPath, "a");
+    stdio = ["ignore", fd, fd];
+  } catch (_) { /* fall back to ignore */ }
+  nextProcess = spawn(process.execPath, [nextBinary, "start", "-p", "3000"], {
     cwd: path.join(process.resourcesPath, "app"),
-    stdio: "ignore",
+    stdio,
     detached: false,
+    env: {
+      ...process.env,
+      ...fileEnv,
+      // Run Electron's bundled Node as a plain Node process for the Next server.
+      ELECTRON_RUN_AS_NODE: "1",
+      NODE_ENV: "production",
+    },
   });
 }
 
