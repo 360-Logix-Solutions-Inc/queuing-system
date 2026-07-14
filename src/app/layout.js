@@ -1,14 +1,18 @@
 import "./globals.css";
+import ConnectionBanner from "../components/ConnectionBanner";
 
 export const metadata = {
   title: "Queue System",
-  description: "Firebase priority queue system",
+  description: "Offline LAN priority queue system",
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <ConnectionBanner />
+        {children}
+      </body>
     </html>
   );
 }

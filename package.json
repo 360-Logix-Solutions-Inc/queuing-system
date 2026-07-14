@@ -21,6 +21,8 @@
     "dist:linux": "next build && electron-builder --linux"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.11.1",
     "firebase": "^11.4.0",
     "next": "^16.2.4",
     "react": "^19.2.5",

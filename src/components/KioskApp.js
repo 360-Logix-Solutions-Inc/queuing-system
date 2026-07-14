@@ -34,6 +34,8 @@ function priorityLabel(type) {
 
 export default function KioskApp() {
   const [orgName, setOrgName] = useState("");
+  const [logo, setLogo] = useState(null);
+  const [kioskBg, setKioskBg] = useState(null);
   const [clientId, setClientId] = useState("default");
   const [device, setDevice] = useState(null);
   const [allServices, setAllServices] = useState(SERVICES);
@@ -86,6 +88,8 @@ export default function KioskApp() {
       const clientInfo = await getClientInfo(nextClientId).catch(() => null);
       if (cancelled) return;
       setOrgName(clientInfo?.name || paired?.clientName || appConfig.orgName || "");
+      setLogo(clientInfo?.logo || null);
+      setKioskBg(clientInfo?.kioskBg || null);
       unsubscribe = listenServices(nextClientId, setAllServices);
     }
 
@@ -220,8 +224,8 @@ export default function KioskApp() {
             <span>Back</span>
           </button>
           <div className="brand">
-            <span className="brand-dot" />
-            <span>Queuing System{orgName ? <span className="brand-sub"> · {orgName}</span> : null}</span>
+            {logo ? <img src={logo} alt="" style={{ height: "1.5em", width: "1.5em", objectFit: "contain", borderRadius: 4 }} /> : <span className="brand-dot" />}
+            <span>{orgName || "Queuing System"}</span>
           </div>
         </div>
         <div className="kiosk-services">
@@ -254,8 +258,8 @@ export default function KioskApp() {
             <span>Back</span>
           </button>
           <div className="brand">
-            <span className="brand-dot" />
-            <span>Queuing System{orgName ? <span className="brand-sub"> · {orgName}</span> : null}</span>
+            {logo ? <img src={logo} alt="" style={{ height: "1.5em", width: "1.5em", objectFit: "contain", borderRadius: 4 }} /> : <span className="brand-dot" />}
+            <span>{orgName || "Queuing System"}</span>
           </div>
         </div>
         <div className="form-wrap">
@@ -384,13 +388,13 @@ export default function KioskApp() {
 
   return (
     <section className="kiosk-start">
-      <div className="kiosk-bg" aria-hidden="true" />
+      <div className="kiosk-bg" aria-hidden="true" style={kioskBg ? { backgroundImage: `url(${kioskBg})` } : undefined} />
       <div className="kiosk-overlay" aria-hidden="true" />
 
       <header className="kiosk-top">
         <div className="kiosk-brand-mark">
           <span className="brand-dot" />
-          <span>Queuing System</span>
+          <span>{orgName || "Queuing System"}</span>
         </div>
         <div className="kiosk-clock" suppressHydrationWarning>
           <div className="kiosk-time tabular">{now ? formatStartTime(now) : "--:--"}</div>
@@ -399,6 +403,7 @@ export default function KioskApp() {
       </header>
 
       <div className="kiosk-center">
+        {logo ? <img src={logo} alt="" className="kiosk-seal" /> : null}
         <div className="kiosk-greeting">Mabuhay!</div>
         <div className="kiosk-greeting-sub">Welcome / Maligayang Pagdating</div>
         <button className="tap-button start-only breathing" onClick={() => setStep("services")}>
@@ -407,10 +412,6 @@ export default function KioskApp() {
         <div className="kiosk-greeting-hint">I-tap ang button upang magsimula</div>
       </div>
 
-      <footer className="kiosk-bottom">
-        <span className="hours-dot" />
-        Open Monday - Friday / 8:00 AM - 5:00 PM
-      </footer>
     </section>
   );
 }

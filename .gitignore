@@ -3,6 +3,12 @@ node_modules/
 .pnp
 .pnp.js
 
+# Local SQLite database (dev). Real data lives in Electron userData at runtime.
+data/
+*.db
+*.db-wal
+*.db-shm
+
 # Build outputs
 .next/
 dist/
