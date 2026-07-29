@@ -4,9 +4,13 @@
 // auto-sync on reconnect), so this bar just informs staff/customers that changes
 // will sync once the connection returns — it does not block anything.
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 export default function ConnectionBanner() {
   const [online, setOnline] = useState(true);
+  // The kiosk shows its own indicator, in the customer's chosen language and
+  // inside its own chrome. Two banners would collide and say the same thing.
+  const pathname = usePathname();
 
   useEffect(() => {
     // Initialize from the real state (SSR renders online to avoid a flash).
@@ -21,7 +25,7 @@ export default function ConnectionBanner() {
     };
   }, []);
 
-  if (online) return null;
+  if (online || pathname?.startsWith("/kiosk")) return null;
 
   return (
     <div

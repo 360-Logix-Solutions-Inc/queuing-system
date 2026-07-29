@@ -80,6 +80,14 @@ const STRINGS = {
     close: "Close",
     readAloud: "Read aloud",
     speakAgain: "Read this screen again",
+    keyboard: "Keyboard",
+    keyboardEmpty: "Tap the keys to type",
+    done: "Done",
+    space: "Space",
+    backspace: "Backspace",
+    offline: "Offline",
+    offlineHint: "Works without internet",
+    shift: "Shift",
   },
 
   fil: {
@@ -135,6 +143,14 @@ const STRINGS = {
     close: "Isara",
     readAloud: "Basahin nang malakas",
     speakAgain: "Ulitin ang pagbasa",
+    keyboard: "Keyboard",
+    keyboardEmpty: "I-tap ang mga letra",
+    done: "Tapos na",
+    space: "Space",
+    backspace: "Burahin",
+    offline: "Offline",
+    offlineHint: "Gumagana kahit walang internet",
+    shift: "Shift",
   },
 
   // Romblomanon (Ini) — Romblon, San Agustin, Cajidiocan, Magdiwang, San Fernando
@@ -191,6 +207,14 @@ const STRINGS = {
     close: "Isara",
     readAloud: "Basahon it makusog",
     speakAgain: "Basahon liwat",
+    keyboard: "Keyboard",
+    keyboardEmpty: "Pindutan ang mga letra",
+    done: "Tapos ron",
+    space: "Space",
+    backspace: "Panason",
+    offline: "Offline",
+    offlineHint: "Nagaandar bisan wara it internet",
+    shift: "Shift",
   },
 
   // Asi / Bantoanon — Banton, Odiongan, Calatrava, Corcuera, Concepcion, San Andres
@@ -247,6 +271,14 @@ const STRINGS = {
     close: "Isadho",
     readAloud: "Basahon it makusog",
     speakAgain: "Basahon yiwat",
+    keyboard: "Keyboard",
+    keyboardEmpty: "Pindoton ang mga yetra",
+    done: "Tapos ra",
+    space: "Space",
+    backspace: "Panason",
+    offline: "Offline",
+    offlineHint: "Nagaandar bisan wayay internet",
+    shift: "Shift",
   },
 
   // Onhan / Inunhan — Looc, Alcantara, Santa Fe, Santa Maria, San Jose
@@ -303,6 +335,14 @@ const STRINGS = {
     close: "Isara",
     readAloud: "Basahon it makusog",
     speakAgain: "Basahon liwat",
+    keyboard: "Keyboard",
+    keyboardEmpty: "Pisilon ang mga letra",
+    done: "Tapos ron",
+    space: "Space",
+    backspace: "Panason",
+    offline: "Offline",
+    offlineHint: "Nagaandar bisan wara it internet",
+    shift: "Shift",
   },
 
 };
