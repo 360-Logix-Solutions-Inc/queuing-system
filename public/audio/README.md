@@ -97,6 +97,7 @@ is printed on screen.
 | `gtranslate` *(default)* | standard | nothing |
 | `google` | neural (WaveNet) | `GOOGLE_TTS_API_KEY` |
 | `azure` | neural | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` |
+| `mms` | neural, **runs offline** | local Python venv + ffmpeg |
 
 Start with the default. If the voices sound too flat for a public lobby,
 re-render with `--provider=google --force`; the filenames are identical, so
@@ -106,10 +107,36 @@ nothing else changes.
 the kiosk only ever plays finished MP3s — which is what keeps read-aloud working
 with the internet down, the state to design for here.
 
-Romblomanon, Asi, Onhan and Cebuano have no voice at any provider, so they are
-rendered with the Filipino voice. Shared orthography and a common five-vowel
-system make it intelligible, but the prosody is wrong — treat those four as a
-usable stand-in until a native speaker can be recorded.
+### The Romblon languages
+
+Onhan and Cebuano have no voice at any provider and are rendered with the
+Filipino voice — intelligible thanks to shared orthography, but the prosody is
+wrong. Treat them as a stand-in until a native speaker can be recorded.
+
+**Romblomanon and Asi are different**: Meta's MMS-TTS has real models for both,
+so the shipped clips for those two are in the actual language, not a stand-in.
+They were rendered with `--provider=mms`.
+
+```bash
+py -m venv .venv
+.venv/Scripts/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+.venv/Scripts/python -m pip install transformers scipy
+node scripts/generate-voice-clips.mjs rol bno --provider=mms --force
+```
+
+Needs ffmpeg on PATH (or `FFMPEG_PATH`) to turn MMS's WAV output into MP3.
+Models download once to `~/.cache/huggingface`. The `.venv` is gitignored and
+safe to delete — it is build-time only and never ships.
+
+Two caveats on `mms`:
+
+- **Licence is CC-BY-NC 4.0** — non-commercial. A municipal queuing system is
+  very likely fine, but that is a call for the LGU's legal or IT office.
+- **Digits are spoken as words**, because MMS's character tokenizer has no
+  entry for them: `bno` errors outright and `rol` emitted ~0.3s of noise. The
+  standard Visayan numerals are used (`isa`, `duha`, `tatlo`…). Asi's own forms
+  shift l→y and are unverified — have a native speaker check those along with
+  the rest of the Asi strings.
 
 ## Recording notes
 

@@ -25,6 +25,15 @@ import { PROVIDERS, DEFAULT_PROVIDER } from "./lib/tts-providers.mjs";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const audioDir = join(root, "public", "audio");
 
+// Where the offline `mms` provider finds its interpreter and tools. The venv is
+// created by:  py -m venv .venv  &&  .venv/Scripts/python -m pip install
+// torch --index-url https://download.pytorch.org/whl/cpu transformers scipy
+const paths = {
+  python: join(root, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python"),
+  mmsScript: join(root, "scripts", "lib", "mms_tts.py"),
+  ffmpeg: process.env.FFMPEG_PATH || "ffmpeg",
+};
+
 function readEnv() {
   const out = {};
   try {
@@ -113,7 +122,7 @@ for (const lang of languages) {
     let audio = null;
     for (let attempt = 0; attempt < 2 && !audio; attempt++) {
       try {
-        audio = await provider.synthesize({ ...job, lang: lang.code, env });
+        audio = await provider.synthesize({ ...job, lang: lang.code, env, paths });
       } catch (err) {
         if (err.retryable && attempt === 0) { await sleep(4000); continue; }
         console.error(`  ! ${job.name}: ${err.message}`);
@@ -126,9 +135,12 @@ for (const lang of languages) {
     writeFileSync(file, audio);
     written++;
     process.stdout.write(`  ${job.name.padEnd(18)} ${(audio.length / 1024).toFixed(0)} KB\n`);
-    await sleep(providerId === "gtranslate" ? 700 : 120);   // stay under the rate limit
+    // Local inference has nothing to rate limit; network providers do.
+    if (!provider.noThrottle) await sleep(providerId === "gtranslate" ? 700 : 120);
   }
 }
+
+provider.dispose?.();
 
 console.log(
   `\nDone. ${written} ${dryRun ? "planned" : "written"}, ${skipped} already present, ${failed} failed.` +

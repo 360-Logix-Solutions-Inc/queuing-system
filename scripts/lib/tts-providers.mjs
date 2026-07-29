@@ -15,6 +15,8 @@
 // Quality ranking: azure ≈ google > gtranslate. Availability ranking is the
 // exact reverse, which is why gtranslate is the default.
 
+import { spawn } from "node:child_process";
+
 // --- shared -----------------------------------------------------------------
 
 const UA =
@@ -196,5 +198,142 @@ const azure = {
   },
 };
 
-export const PROVIDERS = { gtranslate, google, azure };
+// --- mms (offline, local model) ---------------------------------------------
+
+// Meta's MMS-TTS is the ONLY engine anywhere with real models for Romblomanon
+// and Asi. Every cloud provider renders those two with a Filipino stand-in.
+// Onhan (loc) has no MMS model — it is absent upstream, not omitted here.
+//
+// Codes are ISO 639-3, matching the facebook/mms-tts-<code> repos.
+const MMS_MODEL = {
+  en: "eng", fil: "tgl", rol: "rol", bno: "bno", ceb: "ceb",
+  ko: "kor", ja: "jpn", de: "deu", fr: "fra", es: "spa",
+  // zh: MMS splits Chinese into regional codes that do not map cleanly to the
+  // kiosk's single `zh`; use another provider for it.
+  // loc: no upstream model.
+};
+
+// One long-lived Python host for the whole run. Loading a VITS model costs
+// several seconds, so spawning per clip would make a 45-file language spend
+// almost all its time on imports rather than on speech.
+let host = null;
+
+function mmsHost(paths) {
+  if (host) return host;
+
+  const child = spawn(paths.python, [paths.mmsScript], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const queue = [];
+  let buffer = "";
+  let stderr = "";
+
+  child.stderr.on("data", (c) => { stderr = (stderr + c.toString()).slice(-2000); });
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => {
+    buffer += chunk;
+    let nl;
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+      let msg;
+      try { msg = JSON.parse(line); } catch (_) { continue; }
+      if (msg.ready) continue;               // startup handshake
+      const pending = queue.shift();
+      if (!pending) continue;
+      msg.ok ? pending.resolve() : pending.reject(new Error(msg.error || "mms failed"));
+    }
+  });
+
+  const fail = (err) => {
+    while (queue.length) queue.shift().reject(err);
+    host = null;
+  };
+  child.on("error", (e) => fail(new Error(`cannot run ${paths.python}: ${e.message}`)));
+  child.on("close", (code) =>
+    fail(new Error(stderr.trim().split("\n").pop() || `python host exited ${code}`))
+  );
+
+  host = {
+    request: (payload) =>
+      new Promise((resolve, reject) => {
+        queue.push({ resolve, reject });
+        child.stdin.write(`${JSON.stringify(payload)}\n`);
+      }),
+    dispose: () => { try { child.stdin.end(); } catch (_) {} host = null; },
+  };
+  return host;
+}
+
+// MMS tokenizers are character based and have no entry for digits: `bno`
+// errors outright, and `rol` produced ~0.3s of noise rather than a number. So
+// digits are handed over as words instead.
+//
+// These are the standard Visayan numerals, which Romblomanon uses directly and
+// Asi speakers understand. Asi's own forms shift l -> y (lima -> yima, walo ->
+// wayo); those are NOT used here because they are unverified. Have a native
+// speaker check the Asi digits along with the rest of its strings.
+const MMS_DIGITS = {
+  0: "sero", 1: "isa", 2: "duha", 3: "tatlo", 4: "apat",
+  5: "lima", 6: "anom", 7: "pito", 8: "walo", 9: "siyam",
+};
+
+const mms = {
+  id: "mms",
+  label: "Meta MMS-TTS (offline, local model — CC-BY-NC 4.0)",
+  needs: [],
+  supports: (lang) => Boolean(MMS_MODEL[lang]),
+  describe: (lang) => `facebook/mms-tts-${MMS_MODEL[lang]}`,
+  maxChars: 500,
+  // Local inference: no network round trip to pace, and no rate limit.
+  noThrottle: true,
+
+  async synthesize({ lang, text, paths }) {
+    const model = MMS_MODEL[lang];
+    if (!model) throw new Error(`mms has no model for "${lang}"`);
+
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const { spawn } = await import("node:child_process");
+
+    const dir = mkdtempSync(join(tmpdir(), "mms-"));
+    const wav = join(dir, "out.wav");
+    const spoken = /^\d$/.test(text) ? MMS_DIGITS[Number(text)] : text;
+
+    try {
+      await mmsHost(paths).request({ model, text: spoken, wav });
+
+      // MMS emits WAV; the kiosk player expects MP3. ffmpeg writes to stdout so
+      // no second temp file is needed.
+      const mp3 = await new Promise((resolve, reject) => {
+        const ff = spawn(paths.ffmpeg, [
+          "-hide_banner", "-loglevel", "error",
+          "-i", wav, "-codec:a", "libmp3lame", "-qscale:a", "4",
+          "-f", "mp3", "pipe:1",
+        ]);
+        const chunks = [];
+        let stderr = "";
+        ff.stdout.on("data", (c) => chunks.push(c));
+        ff.stderr.on("data", (c) => { stderr += c.toString(); });
+        ff.on("error", (e) => reject(new Error(`cannot run ffmpeg: ${e.message}`)));
+        ff.on("close", (code) =>
+          code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(stderr.trim() || `ffmpeg exited ${code}`))
+        );
+      });
+
+      return assertMp3(mp3, "mms");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+
+  // Lets the generator shut the Python host down instead of waiting on an idle
+  // child to keep the process alive.
+  dispose: () => host?.dispose(),
+};
+
+export const PROVIDERS = { gtranslate, google, azure, mms };
 export const DEFAULT_PROVIDER = "gtranslate";

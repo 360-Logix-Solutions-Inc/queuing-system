@@ -56,3 +56,6 @@ vite.config.*.timestamp-*
 # Optional npm
 .npm
 .yarn-integrity
+
+# Python venv for the MMS-TTS clip provider (build-time only)
+.venv/
