@@ -3,6 +3,12 @@ node_modules/
 .pnp
 .pnp.js
 
+# Local SQLite database (dev). Real data lives in Electron userData at runtime.
+data/
+*.db
+*.db-wal
+*.db-shm
+
 # Build outputs
 .next/
 dist/
@@ -50,3 +56,6 @@ vite.config.*.timestamp-*
 # Optional npm
 .npm
 .yarn-integrity
+
+# Python venv for the MMS-TTS clip provider (build-time only)
+.venv/

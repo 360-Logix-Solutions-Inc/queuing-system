@@ -1,9 +1,22 @@
 const { app, BrowserWindow, ipcMain, Menu, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { spawn } = require("child_process");
 
 const isDev = !app.isPackaged;
+
+// All LAN IPv4 addresses of this host, so client devices know where to connect.
+function computeLanInfo(port) {
+  const ips = [];
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name] || []) {
+      if (net.family === "IPv4" && !net.internal) ips.push(net.address);
+    }
+  }
+  return { ips, port, urls: ips.map((ip) => `http://${ip}:${port}`) };
+}
 
 // Runtime config — read from config.json next to the installed exe so admins
 // can change URL / startup path / kiosk mode without rebuilding the app.
@@ -26,12 +39,63 @@ function readRuntimeConfig() {
 
 const runtime = readRuntimeConfig();
 
+// Parse a .env file into a plain object. Minimal dotenv-compatible parser so we
+// don't need a runtime dependency. Supports KEY=VALUE lines, optional quotes,
+// `export ` prefixes, and `#` comments.
+function parseEnvFile(filePath) {
+  const out = {};
+  let text;
+  try {
+    text = fs.readFileSync(filePath, "utf8");
+  } catch (_) {
+    return out;
+  }
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const withoutExport = line.replace(/^export\s+/, "");
+    const eq = withoutExport.indexOf("=");
+    if (eq === -1) continue;
+    const key = withoutExport.slice(0, eq).trim();
+    if (!key) continue;
+    let value = withoutExport.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+// In the packaged app the Next server runs with cwd `resources/app`, but the
+// .env file is shipped to `resources/.env` (extraResources), so Next's built-in
+// .env auto-loading never finds it. Locate the .env ourselves so we can inject
+// it into the spawned server's environment.
+function loadServerEnv() {
+  const candidates = [];
+  if (!isDev) {
+    candidates.push(path.join(path.dirname(app.getPath("exe")), ".env"));
+    candidates.push(path.join(process.resourcesPath, ".env"));
+    candidates.push(path.join(process.resourcesPath, "app", ".env"));
+  }
+  candidates.push(path.join(__dirname, "..", ".env"));
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return parseEnvFile(p);
+  }
+  return {};
+}
+
 const REMOTE_URL = process.env.ELECTRON_REMOTE_URL || runtime.remoteUrl || "";
 const DEV_URL = process.env.ELECTRON_DEV_URL || runtime.devUrl || "http://localhost:3000";
 const STARTUP_PATH = process.env.ELECTRON_STARTUP_PATH || runtime.startupPath || "/kiosk";
 const KIOSK_MODE = process.env.ELECTRON_KIOSK === "1" || runtime.kiosk === true;
 const FULLSCREEN = process.env.ELECTRON_FULLSCREEN === "1" || runtime.fullscreen === true;
 const PRINTER_NAME = process.env.PRINTER_NAME || runtime.printerName || undefined;
+const SERVER_PORT = Number(process.env.PORT || runtime.port || 3000);
+const ORG_NAME = process.env.QUEUE_ORG_NAME || runtime.orgName || "";
 const USE_REMOTE = Boolean(REMOTE_URL);
 
 let mainWindow;
@@ -41,10 +105,30 @@ function startNextServerIfNeeded() {
   if (isDev) return;
   if (USE_REMOTE) return; // No local server when loading a remote URL
   const nextBinary = path.join(process.resourcesPath, "app", "node_modules", "next", "dist", "bin", "next");
-  nextProcess = spawn("node", [nextBinary, "start", "-p", "3000"], {
+  const fileEnv = loadServerEnv();
+  // Log the Next server's output next to the app so kiosk issues are diagnosable.
+  let stdio = "ignore";
+  try {
+    const logPath = path.join(app.getPath("userData"), "next-server.log");
+    const fd = fs.openSync(logPath, "a");
+    stdio = ["ignore", fd, fd];
+  } catch (_) { /* fall back to ignore */ }
+  nextProcess = spawn(process.execPath, [nextBinary, "start", "-p", String(SERVER_PORT)], {
     cwd: path.join(process.resourcesPath, "app"),
-    stdio: "ignore",
+    stdio,
     detached: false,
+    env: {
+      ...process.env,
+      ...fileEnv,
+      // Run Electron's bundled Node as a plain Node process for the Next server.
+      ELECTRON_RUN_AS_NODE: "1",
+      NODE_ENV: "production",
+      PORT: String(SERVER_PORT),
+      // SQLite lives in the per-user app data dir so it survives app updates and
+      // isn't wiped when the install folder is replaced.
+      QUEUE_DB_PATH: path.join(app.getPath("userData"), "queue.db"),
+      QUEUE_ORG_NAME: fileEnv.QUEUE_ORG_NAME || ORG_NAME,
+    },
   });
 }
 
@@ -71,8 +155,30 @@ function createWindow() {
     mainWindow.setMenuBarVisibility(false);
   }
 
-  const baseUrl = USE_REMOTE ? REMOTE_URL.replace(/\/$/, "") : DEV_URL;
+  const localBase = isDev ? DEV_URL : `http://localhost:${SERVER_PORT}`;
+  const baseUrl = USE_REMOTE ? REMOTE_URL.replace(/\/$/, "") : localBase;
   const url = `${baseUrl}${STARTUP_PATH}`;
+
+  // Host PC (running the local server): show the LAN URLs so staff can point
+  // kiosk/counter/display devices on other PCs at this machine.
+  if (!USE_REMOTE) {
+    const lan = computeLanInfo(SERVER_PORT);
+    if (lan.urls.length) {
+      mainWindow.setTitle(`Queuing System — host at ${lan.urls[0]}`);
+      if (!KIOSK_MODE) {
+        mainWindow.webContents.once("did-finish-load", () => {
+          dialog.showMessageBox(mainWindow, {
+            type: "info",
+            title: "Queue server is running",
+            message: "Other devices on this network can connect at:",
+            detail: `${lan.urls.join("\n")}\n\nOpen one of these on a kiosk / counter / display device, then enter its pairing code.`,
+            buttons: ["OK"],
+            noLink: true,
+          }).catch(() => {});
+        });
+      }
+    }
+  }
 
   const tryLoad = (attempt = 0) => {
     mainWindow.loadURL(url).catch((err) => {
@@ -142,6 +248,8 @@ ipcMain.handle("queue:silent-print", async (_event, html) => {
     return { success: false, failureReason: err.message };
   }
 });
+
+ipcMain.handle("queue:lan-info", () => computeLanInfo(SERVER_PORT));
 
 ipcMain.handle("queue:list-printers", async () => {
   if (!mainWindow) return [];

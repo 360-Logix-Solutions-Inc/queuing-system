@@ -1,6 +1,9 @@
 import { initializeApp, getApps } from "firebase/app";
 import {
   getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
   collection,
   doc,
   getDoc,
@@ -17,11 +20,28 @@ import {
   onSnapshot,
   getDocs,
 } from "firebase/firestore";
+import bcrypt from "bcryptjs";
 import { getConfig } from "./queueApp";
 
 let app;
 let db;
 let appConfig;
+
+// Enable Firestore's persistent (IndexedDB) offline cache so the app is
+// "offline mode ready": reads render instantly from the local cache even on slow
+// or dropped internet, onSnapshot listeners fire immediately with cached data,
+// and writes are applied locally and auto-synced to Firebase when back online.
+// persistentMultipleTabManager lets kiosk/counter/display tabs share one cache.
+function getFirestoreWithCache(readyApp) {
+  try {
+    return initializeFirestore(readyApp, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch (_) {
+    // Firestore was already initialized on this app instance — reuse it.
+    return getFirestore(readyApp);
+  }
+}
 
 export const SERVICES = [
   { id: "business_permit", name: "Business Permit", prefix: "BP", icon: "BP" },
@@ -36,6 +56,38 @@ export const SERVICES = [
 
 export const DEFAULT_CLIENT_ID = "default";
 const RESPONSE_WINDOW_MS = 10000;
+
+// ===== AUTH: bcrypt hashing + input validation (Phase B) =====
+// Passwords are hashed with bcryptjs before being written to Firestore, so a
+// data leak never exposes plaintext. Login verifies against the hash; legacy
+// plaintext accounts still authenticate and are transparently re-hashed.
+const BCRYPT_ROUNDS = 10;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isBcryptHash(value) {
+  return typeof value === "string" && /^\$2[aby]\$/.test(value);
+}
+
+function hashPassword(password) {
+  return bcrypt.hashSync(String(password), BCRYPT_ROUNDS);
+}
+
+function verifyPassword(password, stored) {
+  if (isBcryptHash(stored)) return bcrypt.compareSync(String(password), stored);
+  return String(password) === String(stored ?? "");
+}
+
+function validateEmail(email) {
+  const clean = String(email || "").trim().toLowerCase();
+  if (!EMAIL_RE.test(clean)) throw new Error("Please enter a valid email address.");
+  return clean;
+}
+
+function validatePassword(password) {
+  const value = String(password ?? "");
+  if (value.length < 6) throw new Error("Password must be at least 6 characters.");
+  return value;
+}
 
 function cleanId(value) {
   return String(value || "")
@@ -97,7 +149,7 @@ export async function initFirebase(clientId = DEFAULT_CLIENT_ID) {
     throw new Error("Firebase config is missing. Check FIREBASE_* values in .env.");
   }
   app = getApps()[0] || initializeApp(appConfig.firebase);
-  db = getFirestore(app);
+  db = getFirestoreWithCache(app);
   await ensureClientDefaults(clientId);
   return { db, appConfig };
 }
@@ -178,7 +230,7 @@ async function initFirebaseNoEnsure() {
     throw new Error("Firebase config is missing. Check FIREBASE_* values in .env.");
   }
   app = getApps()[0] || initializeApp(appConfig.firebase);
-  db = getFirestore(app);
+  db = getFirestoreWithCache(app);
   return { db, appConfig };
 }
 
@@ -1096,10 +1148,9 @@ export async function resetTodayQueue(clientId = DEFAULT_CLIENT_ID) {
 export async function createClientWithAdmin({ clientName, adminName, email, password }) {
   const { db } = await initFirebaseNoEnsure();
   const clientId = normalizeClientId(clientName);
-  const cleanEmail = String(email || "").trim().toLowerCase();
-  if (!clientId || !clientName || !cleanEmail || !password) {
-    throw new Error("Client name, admin email, and password are required.");
-  }
+  if (!clientId || !String(clientName || "").trim()) throw new Error("Client name is required.");
+  const cleanEmail = validateEmail(email);
+  const hashedPassword = hashPassword(validatePassword(password));
 
   await setDoc(doc(db, "clients", clientId), {
     id: clientId,
@@ -1111,7 +1162,7 @@ export async function createClientWithAdmin({ clientName, adminName, email, pass
 
   await setDoc(doc(db, "adminUsers", cleanEmail), {
     email: cleanEmail,
-    password: String(password),
+    password: hashedPassword,
     name: String(adminName || "Admin").trim(),
     role: "admin",
     clientId,
@@ -1142,8 +1193,8 @@ export async function listAdmins() {
 
 export async function addAdminToClient(clientId, { email, password, name, role }) {
   const { db } = await initFirebaseNoEnsure();
-  const cleanEmail = String(email || "").trim().toLowerCase();
-  if (!cleanEmail || !password) throw new Error("Email and password are required.");
+  const cleanEmail = validateEmail(email);
+  const hashedPassword = hashPassword(validatePassword(password));
   const ref = doc(db, "adminUsers", cleanEmail);
   const existing = await getDoc(ref);
   if (existing.exists()) throw new Error("An account with that email already exists.");
@@ -1152,7 +1203,7 @@ export async function addAdminToClient(clientId, { email, password, name, role }
   const cleanRole = role === "staff" ? "staff" : "admin";
   await setDoc(ref, {
     email: cleanEmail,
-    password: String(password),
+    password: hashedPassword,
     name: String(name || (cleanRole === "staff" ? "Counter Staff" : "Admin")).trim(),
     role: cleanRole,
     clientId,
@@ -1243,8 +1294,8 @@ export async function updateAdminCredentials(currentEmail, updates) {
   if (!oldSnap.exists()) throw new Error("Admin user not found.");
 
   const data = oldSnap.data();
-  const newEmail = updates?.email ? String(updates.email).trim().toLowerCase() : null;
-  const newPassword = updates?.password ? String(updates.password) : null;
+  const newEmail = updates?.email ? validateEmail(updates.email) : null;
+  const newPassword = updates?.password ? hashPassword(validatePassword(updates.password)) : null;
   const newName = updates?.name != null ? String(updates.name).trim() : null;
 
   if (newEmail && newEmail !== cleanCurrent) {
@@ -1279,8 +1330,12 @@ export async function adminLogin(email, password) {
   const { db } = await initFirebaseNoEnsure();
   const cleanEmail = String(email || "").trim().toLowerCase();
   const snap = await getDoc(doc(db, "adminUsers", cleanEmail));
-  if (!snap.exists() || snap.data().password !== String(password || "")) {
+  if (!snap.exists() || !verifyPassword(password, snap.data().password)) {
     throw new Error("Invalid admin email or password.");
+  }
+  // Transparently upgrade a legacy plaintext password to a bcrypt hash on login.
+  if (!isBcryptHash(snap.data().password)) {
+    updateDoc(doc(db, "adminUsers", cleanEmail), { password: hashPassword(password), updatedAt: serverTimestamp() }).catch(() => {});
   }
   if (snap.data().active === false) {
     throw new Error("This admin account has been deactivated. Contact your system owner.");
@@ -1295,7 +1350,9 @@ export async function adminLogin(email, password) {
   return user;
 }
 
-export async function getSuperAdminConfig() {
+// Internal: returns the stored superadmin record incl. the password hash. Seeds
+// Firestore from env on first read, hashing the fallback password.
+async function getSuperAdminRecord() {
   const { db, appConfig } = await initFirebaseNoEnsure();
   const ref = doc(db, "systemConfig", "superadmin");
   const snap = await getDoc(ref);
@@ -1303,10 +1360,8 @@ export async function getSuperAdminConfig() {
     const data = snap.data();
     return { email: data.email, password: data.password };
   }
-  // Fallback to env-derived values, and seed Firestore on first read so future
-  // edits land in the database.
-  const fallbackEmail = appConfig.superAdmin?.email || "superadmin@local.test";
-  const fallbackPassword = appConfig.superAdmin?.password || "superadmin123";
+  const fallbackEmail = (appConfig.superAdmin?.email || "superadmin@local.test").toLowerCase();
+  const fallbackPassword = hashPassword(appConfig.superAdmin?.password || "superadmin123");
   await setDoc(ref, {
     email: fallbackEmail,
     password: fallbackPassword,
@@ -1316,12 +1371,18 @@ export async function getSuperAdminConfig() {
   return { email: fallbackEmail, password: fallbackPassword };
 }
 
+// Public: never returns the password (hash) to the UI.
+export async function getSuperAdminConfig() {
+  const record = await getSuperAdminRecord();
+  return { email: record.email, password: "" };
+}
+
 export async function updateSuperAdminCredentials(updates) {
   const { db } = await initFirebaseNoEnsure();
   const ref = doc(db, "systemConfig", "superadmin");
-  const current = await getSuperAdminConfig();
-  const nextEmail = updates?.email != null ? String(updates.email).trim().toLowerCase() : current.email;
-  const nextPassword = updates?.password ? String(updates.password) : current.password;
+  const current = await getSuperAdminRecord();
+  const nextEmail = updates?.email != null ? validateEmail(updates.email) : current.email;
+  const nextPassword = updates?.password ? hashPassword(validatePassword(updates.password)) : current.password;
   if (!nextEmail) throw new Error("Email is required.");
   if (!nextPassword) throw new Error("Password is required.");
   await setDoc(ref, {
@@ -1333,12 +1394,15 @@ export async function updateSuperAdminCredentials(updates) {
 }
 
 export async function superAdminLogin(email, password) {
-  const { appConfig } = await initFirebaseNoEnsure();
-  const config = await getSuperAdminConfig().catch(() => null);
-  const expectedEmail = (config?.email || appConfig.superAdmin?.email || "superadmin@local.test").toLowerCase();
-  const expectedPassword = config?.password || appConfig.superAdmin?.password || "superadmin123";
-  if (String(email || "").trim().toLowerCase() !== expectedEmail || String(password || "") !== expectedPassword) {
+  const { db, appConfig } = await initFirebaseNoEnsure();
+  const record = await getSuperAdminRecord().catch(() => null);
+  const expectedEmail = (record?.email || appConfig.superAdmin?.email || "superadmin@local.test").toLowerCase();
+  if (String(email || "").trim().toLowerCase() !== expectedEmail || !verifyPassword(password, record?.password)) {
     throw new Error("Invalid superadmin login.");
+  }
+  // Upgrade a legacy plaintext superadmin password to a hash on first login.
+  if (record && !isBcryptHash(record.password)) {
+    setDoc(doc(db, "systemConfig", "superadmin"), { password: hashPassword(password), updatedAt: serverTimestamp() }, { merge: true }).catch(() => {});
   }
   return { email: expectedEmail, role: "superadmin" };
 }

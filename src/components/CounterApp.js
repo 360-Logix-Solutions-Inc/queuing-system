@@ -40,6 +40,7 @@ function notifyServing(ticket, orgName, clientId) {
 
 export default function CounterApp() {
   const [orgName, setOrgName] = useState("");
+  const [logo, setLogo] = useState(null);
   const [clientId, setClientId] = useState("default");
   const [device, setDevice] = useState(null);
   const [staff, setStaff] = useState(null);
@@ -115,6 +116,7 @@ export default function CounterApp() {
       const clientInfo = await getClientInfo(nextClientId).catch(() => null);
       if (cancelled) return;
       setOrgName(clientInfo?.name || appConfig.orgName || "");
+      setLogo(clientInfo?.logo || null);
       await sweepQueueTimeouts(nextClientId);
       unsubscribers = [listenCountersForClient(nextClientId, setCounters), listenWaitingTicketsForClient(nextClientId, setWaiting)];
       sweepTimer = setInterval(() => sweepQueueTimeouts(nextClientId).catch(() => {}), 3000);
@@ -262,10 +264,10 @@ export default function CounterApp() {
     <main className="page">
       <div className="topbar">
         <div className="brand">
-          <span className="brand-dot" />
+          {logo ? <img src={logo} alt="" style={{ height: "1.5em", width: "1.5em", objectFit: "contain", borderRadius: 4 }} /> : <span className="brand-dot" />}
           <span>
-            Queuing System
-            <span className="brand-sub"> / Counter Control{orgName ? ` · ${orgName}` : ""}{staff?.name ? ` · ${staff.name}` : ""}</span>
+            {orgName || "Queuing System"}
+            <span className="brand-sub"> / Counter Control{staff?.name ? ` · ${staff.name}` : ""}</span>
           </span>
         </div>
         <div className="actions">

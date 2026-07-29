@@ -11,13 +11,28 @@ import {
 } from "../lib/firebaseClient";
 import { printTicket } from "../lib/queueApp";
 import { notifyTicketSms } from "../lib/smsClient";
+import KioskAccessibilityBar from "./KioskAccessibilityBar";
+import {
+  DEFAULT_LANG,
+  KIOSK_LANGUAGES,
+  ZOOM_LEVELS,
+  kioskT,
+  languageLocale,
+  serviceName,
+  speechLocale,
+} from "../lib/kioskI18n";
+import { announce, initSpeech, spellQueueNumber, stopSpeaking } from "../lib/kioskSpeech";
+
+const LANG_KEY = "queue_kiosk_lang";
+const ZOOM_KEY = "queue_kiosk_zoom";
+const SPEECH_KEY = "queue_kiosk_speech";
 
 function formatStartTime(d) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function formatStartDate(d) {
-  return d.toLocaleDateString("en-PH", {
+function formatStartDate(d, locale) {
+  return d.toLocaleDateString(locale, {
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -25,15 +40,17 @@ function formatStartDate(d) {
   });
 }
 
-function priorityLabel(type) {
-  if (type === "SC") return "Senior Citizen";
-  if (type === "PWD") return "PWD";
-  if (type === "PG") return "Pregnant";
+function priorityLabel(type, t) {
+  if (type === "SC") return t("seniorCitizen");
+  if (type === "PWD") return t("pwd");
+  if (type === "PG") return t("pregnant");
   return "";
 }
 
 export default function KioskApp() {
   const [orgName, setOrgName] = useState("");
+  const [logo, setLogo] = useState(null);
+  const [kioskBg, setKioskBg] = useState(null);
   const [clientId, setClientId] = useState("default");
   const [device, setDevice] = useState(null);
   const [allServices, setAllServices] = useState(SERVICES);
@@ -44,11 +61,152 @@ export default function KioskApp() {
   const [now, setNow] = useState(null);
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
+  const [sendSmsAlerts, setSendSmsAlerts] = useState(false);
   const [consent, setConsent] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
   const [message, setMessage] = useState("");
   const [setupError, setSetupError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [lang, setLang] = useState(DEFAULT_LANG);
+  const [zoomIndex, setZoomIndex] = useState(0);
+  const [speechOn, setSpeechOn] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(false);
+
+  const t = (key) => kioskT(lang, key);
+
+  // Restore accessibility prefs after mount — reading storage during render
+  // would desync the server-rendered markup.
+  useEffect(() => {
+    try {
+      const savedLang = window.localStorage.getItem(LANG_KEY);
+      if (savedLang && KIOSK_LANGUAGES.some((item) => item.code === savedLang)) {
+        setLang(savedLang);
+      }
+      const savedZoom = Number(window.localStorage.getItem(ZOOM_KEY));
+      if (Number.isInteger(savedZoom) && savedZoom >= 0 && savedZoom < ZOOM_LEVELS.length) {
+        setZoomIndex(savedZoom);
+      }
+      if (window.localStorage.getItem(SPEECH_KEY) === "1") setSpeechOn(true);
+    } catch (_) {}
+
+    // Gate on a voice being genuinely available, not on the API existing —
+    // Electron exposes speechSynthesis with zero voices, which would otherwise
+    // put a button on the kiosk that stays silent when pressed.
+    let cancelled = false;
+    initSpeech().then((available) => {
+      if (cancelled) return;
+      setSpeechSupported(available);
+      if (!available) setSpeechOn(false);
+    });
+
+    return () => {
+      cancelled = true;
+      stopSpeaking();
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
+  function changeLang(next) {
+    setLang(next);
+    try { window.localStorage.setItem(LANG_KEY, next); } catch (_) {}
+  }
+
+  function changeZoom(next) {
+    const clamped = Math.min(ZOOM_LEVELS.length - 1, Math.max(0, next));
+    setZoomIndex(clamped);
+    try { window.localStorage.setItem(ZOOM_KEY, String(clamped)); } catch (_) {}
+  }
+
+  function toggleSpeech() {
+    const next = !speechOn;
+    setSpeechOn(next);
+    if (!next) stopSpeaking();
+    try { window.localStorage.setItem(SPEECH_KEY, next ? "1" : "0"); } catch (_) {}
+  }
+
+  // What read-aloud narrates for the screen currently on show. Kept in one
+  // place so the announcement always matches what the customer is looking at.
+  // A ticket stores the service name as it stood when issued. Re-resolve it
+  // against the live list so the confirmation screen follows the language the
+  // customer picked, rather than freezing whatever the admin typed.
+  function ticketServiceName() {
+    if (!lastTicket) return "";
+    const match = allServices.find((item) => item.id === lastTicket.serviceId);
+    return match ? serviceName(match, lang) : lastTicket.serviceName || "";
+  }
+
+  // Service names come from Firestore, so they can never be pre-recorded —
+  // they are marked optional and dropped when a recorded clip set is in use.
+  function screenScript() {
+    if (step === "services") {
+      return [
+        { key: "servicesTitle", text: t("servicesTitle") },
+        { key: "servicesSub", text: t("servicesSub") },
+      ];
+    }
+    if (step === "details" && selectedService) {
+      return [
+        { text: serviceName(selectedService, lang), optional: true },
+        { key: "ticketPreviewHint", text: t("ticketPreviewHint") },
+        { key: "fallInLine", text: t("fallInLine") },
+      ];
+    }
+    if (step === "done" && lastTicket) {
+      return [
+        { key: "yourNumber", text: t("yourNumber") },
+        { chars: lastTicket.queueNumber, text: spellQueueNumber(lastTicket.queueNumber) },
+        { text: ticketServiceName(), optional: true },
+        { key: "doneHint", text: t("doneHint") },
+      ];
+    }
+    return [
+      { key: "greeting", text: t("greeting") },
+      { key: "greetingSub", text: t("greetingSub") },
+      { key: "startHint", text: t("startHint") },
+    ];
+  }
+
+  function speakScreen() {
+    announce(screenScript(), lang, speechLocale(lang));
+  }
+
+  // Re-announce whenever the screen or the language changes. `lastTicket` is in
+  // the deps so a freshly issued number is read out, not the previous one.
+  useEffect(() => {
+    if (!speechOn || !speechSupported) return;
+    speakScreen();
+  }, [speechOn, speechSupported, step, lang, selectedService?.id, lastTicket?.queueNumber]);
+
+  // Every kiosk screen renders through here: content scales, the control bar
+  // stays fixed and unscaled so it is reachable at any text size.
+  function withKioskShell(content) {
+    return (
+      <div
+        className="kiosk-root"
+        style={{
+          "--kiosk-zoom": ZOOM_LEVELS[zoomIndex],
+          // The control bar grows too — someone who needs 150% text has to be
+          // able to read it — but capped, so it never swallows the screen.
+          "--kiosk-ui-zoom": Math.min(ZOOM_LEVELS[zoomIndex], 1.25),
+        }}
+      >
+        <div className="kiosk-zoom-area">{content}</div>
+        <KioskAccessibilityBar
+          lang={lang}
+          onLangChange={changeLang}
+          zoomIndex={zoomIndex}
+          onZoomChange={changeZoom}
+          speechSupported={speechSupported}
+          speechOn={speechOn}
+          onSpeechToggle={toggleSpeech}
+          onSpeakAgain={speakScreen}
+        />
+      </div>
+    );
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +244,8 @@ export default function KioskApp() {
       const clientInfo = await getClientInfo(nextClientId).catch(() => null);
       if (cancelled) return;
       setOrgName(clientInfo?.name || paired?.clientName || appConfig.orgName || "");
+      setLogo(clientInfo?.logo || null);
+      setKioskBg(clientInfo?.kioskBg || null);
       unsubscribe = listenServices(nextClientId, setAllServices);
     }
 
@@ -121,6 +281,7 @@ export default function KioskApp() {
     setPriorityType(null);
     setCustomerName("");
     setPhone("");
+    setSendSmsAlerts(false);
     setConsent(false);
     setShowConsent(false);
     setMessage("");
@@ -131,6 +292,10 @@ export default function KioskApp() {
   // name or phone. Blank fields = nothing to protect, so no overlay — they fall
   // in line straight away.
   function handleFallInLine() {
+    if (sendSmsAlerts && !phone.trim()) {
+      setMessage(t("phoneRequired"));
+      return;
+    }
     const hasPersonalInfo = Boolean(customerName.trim() || phone.trim());
     if (hasPersonalInfo && !consent) {
       setShowConsent(true);
@@ -154,7 +319,7 @@ export default function KioskApp() {
         clientId,
         serviceId: selectedService.id,
         customerName,
-        phone,
+        phone: sendSmsAlerts ? phone : "",
         priorityType,
       });
 
@@ -198,6 +363,7 @@ export default function KioskApp() {
     setLastTicket(null);
     setCustomerName("");
     setPhone("");
+    setSendSmsAlerts(false);
     setConsent(false);
     setShowConsent(false);
     setMessage("");
@@ -212,31 +378,32 @@ export default function KioskApp() {
   }
 
   if (step === "services") {
-    return (
+    return withKioskShell(
       <main className="page">
         <div className="topbar">
           <button className="btn btn-back" onClick={() => setStep("start")}>
             <span className="back-icon" aria-hidden="true">←</span>
-            <span>Back</span>
+            <span>{t("back")}</span>
           </button>
           <div className="brand">
-            <span className="brand-dot" />
-            <span>Queuing System{orgName ? <span className="brand-sub"> · {orgName}</span> : null}</span>
+            {logo ? <img src={logo} alt="" style={{ height: "1.5em", width: "1.5em", objectFit: "contain", borderRadius: 4 }} /> : <span className="brand-dot" />}
+            <span>{orgName || "Queuing System"}</span>
           </div>
         </div>
         <div className="kiosk-services">
-          <h1 className="kiosk-heading">Select a service</h1>
-          <p className="kiosk-sub">Tap any service to begin your transaction.</p>
+          <h1 className="kiosk-heading">{t("servicesTitle")}</h1>
+          <p className="kiosk-sub">{t("servicesSub")}</p>
           <div className="service-grid">
             {services.map((service) => (
               <button
                 className="service-card"
                 key={service.id}
+                aria-label={`${serviceName(service, lang)} — ${t("queue")} ${service.prefix}`}
                 onClick={() => selectService(service)}
               >
-                <div className="service-icon">{service.icon}</div>
-                <div className="service-title">{service.name}</div>
-                <div className="service-prefix">Queue - {service.prefix}</div>
+                <div className="service-icon" aria-hidden="true">{service.icon}</div>
+                <div className="service-title">{serviceName(service, lang)}</div>
+                <div className="service-prefix">{t("queue")} - {service.prefix}</div>
               </button>
             ))}
           </div>
@@ -246,36 +413,36 @@ export default function KioskApp() {
   }
 
   if (step === "details" && selectedService) {
-    return (
+    return withKioskShell(
       <main className="page">
         <div className="topbar">
           <button className="btn btn-back" onClick={() => setStep("services")}>
             <span className="back-icon" aria-hidden="true">←</span>
-            <span>Back</span>
+            <span>{t("back")}</span>
           </button>
           <div className="brand">
-            <span className="brand-dot" />
-            <span>Queuing System{orgName ? <span className="brand-sub"> · {orgName}</span> : null}</span>
+            {logo ? <img src={logo} alt="" style={{ height: "1.5em", width: "1.5em", objectFit: "contain", borderRadius: 4 }} /> : <span className="brand-dot" />}
+            <span>{orgName || "Queuing System"}</span>
           </div>
         </div>
         <div className="form-wrap">
           <div className="panel">
             <div className="ticket-preview">
-              <div className="ticket-number ticket-number--service">{selectedService.name}</div>
-              <div className="ticket-preview-hint">Your queue number is generated when you tap Fall in Line.</div>
+              <div className="ticket-number ticket-number--service">{serviceName(selectedService, lang)}</div>
+              <div className="ticket-preview-hint">{t("ticketPreviewHint")}</div>
             </div>
             <div className="field">
-              <label htmlFor="nameInput">Name <span className="opt">(optional)</span></label>
+              <label htmlFor="nameInput">{t("nameLabel")} <span className="opt">{t("optional")}</span></label>
               <input
                 id="nameInput"
-                placeholder="Enter your name"
+                placeholder={t("namePlaceholder")}
                 autoComplete="off"
                 value={customerName}
                 onChange={(event) => setCustomerName(event.target.value)}
               />
             </div>
             <div className="field">
-              <label htmlFor="phoneInput">Phone Number <span className="opt">(optional)</span></label>
+              <label htmlFor="phoneInput">{t("phoneLabel")} <span className="opt">{t("optional")}</span></label>
               <input
                 id="phoneInput"
                 type="tel"
@@ -288,31 +455,47 @@ export default function KioskApp() {
                 onChange={(event) => setPhone(event.target.value.replace(/\D/g, ""))}
               />
             </div>
-            <div className="section-label">Priority Lane</div>
-            <div className="priority-row">
+            <label className="consent-row" htmlFor="sendSmsAlerts">
+              <input
+                id="sendSmsAlerts"
+                type="checkbox"
+                checked={sendSmsAlerts}
+                onChange={(event) => setSendSmsAlerts(event.target.checked)}
+              />
+              <span className="consent-text">
+                <strong>{t("smsTitle")}</strong><br />
+                {t("smsDesc")}
+              </span>
+            </label>
+            <div className="section-label" id="priorityLabel">{t("priorityLane")}</div>
+            <div className="priority-row" role="group" aria-labelledby="priorityLabel">
               <button
                 className={`priority-option ${priorityType === null ? "active" : ""}`}
+                aria-pressed={priorityType === null}
                 onClick={() => setPriorityType(null)}
               >
-                Regular
+                {t("regular")}
               </button>
               <button
                 className={`priority-option ${priorityType === "PWD" ? "active" : ""}`}
+                aria-pressed={priorityType === "PWD"}
                 onClick={() => setPriorityType("PWD")}
               >
-                PWD
+                {t("pwd")}
               </button>
               <button
                 className={`priority-option ${priorityType === "SC" ? "active" : ""}`}
+                aria-pressed={priorityType === "SC"}
                 onClick={() => setPriorityType("SC")}
               >
-                Senior
+                {t("senior")}
               </button>
               <button
                 className={`priority-option ${priorityType === "PG" ? "active" : ""}`}
+                aria-pressed={priorityType === "PG"}
                 onClick={() => setPriorityType("PG")}
               >
-                Pregnant
+                {t("pregnant")}
               </button>
             </div>
             <button
@@ -320,9 +503,9 @@ export default function KioskApp() {
               disabled={submitting}
               onClick={handleFallInLine}
             >
-              {submitting ? "Please wait..." : "Fall in Line"}
+              {submitting ? t("pleaseWait") : t("fallInLine")}
             </button>
-            {message ? <div className="notice error">{message}</div> : null}
+            {message ? <div className="notice error" role="alert">{message}</div> : null}
           </div>
         </div>
 
@@ -330,13 +513,10 @@ export default function KioskApp() {
           <div className="consent-overlay" role="dialog" aria-modal="true" aria-labelledby="dpaTitle">
             <div className="consent-modal">
               <div className="consent-modal-icon" aria-hidden="true">🔒</div>
-              <h2 id="dpaTitle" className="consent-modal-title">Data Privacy Notice</h2>
+              <h2 id="dpaTitle" className="consent-modal-title">{t("consentTitle")}</h2>
               <p className="consent-modal-text">
-                By providing your name and/or phone number, you consent to the collection and
-                processing of your personal information in compliance with the
-                <strong> Data Privacy Act of 2012 (RA 10173)</strong>. Your information will be
-                used <strong>only for queue management and SMS notifications</strong>, and will
-                not be shared with third parties.
+                {t("consentText1")} <strong>{t("consentLaw")}</strong>{t("consentText2")}{" "}
+                <strong>{t("consentUse")}</strong>{t("consentText3")}
               </p>
               <div className="consent-modal-actions">
                 <button
@@ -344,14 +524,14 @@ export default function KioskApp() {
                   onClick={() => setShowConsent(false)}
                   disabled={submitting}
                 >
-                  Cancel
+                  {t("cancel")}
                 </button>
                 <button
                   className="tap-button consent-accept"
                   onClick={acceptConsent}
                   disabled={submitting}
                 >
-                  {submitting ? "Please wait..." : "I Agree & Continue"}
+                  {submitting ? t("pleaseWait") : t("agree")}
                 </button>
               </div>
             </div>
@@ -362,55 +542,56 @@ export default function KioskApp() {
   }
 
   if (step === "done" && lastTicket) {
-    return (
+    return withKioskShell(
       <main className="page">
         <div className="done-wrap">
-          <div className="done-card">
-            <div className="done-label">Your queue number</div>
+          <div className="done-card" role="status" aria-live="polite">
+            <div className="done-label">{t("yourNumber")}</div>
             <div className="done-number">{lastTicket.queueNumber}</div>
-            <div className="done-service">{lastTicket.serviceName}</div>
+            <div className="done-service">{ticketServiceName()}</div>
             {lastTicket.priorityType ? (
               <div className="done-priority">
-                {priorityLabel(lastTicket.priorityType)} - Priority Lane
+                {priorityLabel(lastTicket.priorityType, t)} - {t("priorityLane")}
               </div>
             ) : null}
-            <p className="done-hint">Please wait for your number to be called.</p>
-            <button className="tap-button full" onClick={resetFlow}>New Transaction</button>
+            <p className="done-hint">{t("doneHint")}</p>
+            <button className="tap-button full" onClick={resetFlow}>{t("newTransaction")}</button>
           </div>
         </div>
       </main>
     );
   }
 
-  return (
+  return withKioskShell(
     <section className="kiosk-start">
-      <div className="kiosk-bg" aria-hidden="true" />
+      <div className="kiosk-bg" aria-hidden="true" style={kioskBg ? { backgroundImage: `url(${kioskBg})` } : undefined} />
       <div className="kiosk-overlay" aria-hidden="true" />
 
       <header className="kiosk-top">
         <div className="kiosk-brand-mark">
-          <span className="brand-dot" />
-          <span>Queuing System</span>
+          <span className="brand-dot" aria-hidden="true" />
+          <span>{orgName || "Queuing System"}</span>
         </div>
         <div className="kiosk-clock" suppressHydrationWarning>
           <div className="kiosk-time tabular">{now ? formatStartTime(now) : "--:--"}</div>
-          <div className="kiosk-date">{now ? formatStartDate(now) : ""}</div>
+          <div className="kiosk-date">{now ? formatStartDate(now, languageLocale(lang)) : ""}</div>
         </div>
       </header>
 
       <div className="kiosk-center">
-        <div className="kiosk-greeting">Mabuhay!</div>
-        <div className="kiosk-greeting-sub">Welcome / Maligayang Pagdating</div>
-        <button className="tap-button start-only breathing" onClick={() => setStep("services")}>
-          <span>Touch to Start</span>
+        {logo ? <img src={logo} alt="" className="kiosk-seal" /> : null}
+        <h1 className="kiosk-greeting">{t("greeting")}</h1>
+        <div className="kiosk-greeting-sub">{t("greetingSub")}</div>
+        <button
+          className="tap-button start-only breathing"
+          onClick={() => setStep("services")}
+          aria-label={t("startButton")}
+        >
+          <span>{t("startButton")}</span>
         </button>
-        <div className="kiosk-greeting-hint">I-tap ang button upang magsimula</div>
+        <div className="kiosk-greeting-hint">{t("startHint")}</div>
       </div>
 
-      <footer className="kiosk-bottom">
-        <span className="hours-dot" />
-        Open Monday - Friday / 8:00 AM - 5:00 PM
-      </footer>
     </section>
   );
 }

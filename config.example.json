@@ -1,6 +1,8 @@
 {
-  "_comment": "Copy this to config.json and edit. Place beside the installed .exe (or in resources/ for shared install).",
-  "remoteUrl": "https://your-app.vercel.app",
+  "_comment": "Copy to config.json beside the installed .exe. HOST PC: leave remoteUrl empty (runs the local queue server). CLIENT devices (kiosk/counter/display on other PCs): set remoteUrl to the host's LAN URL shown at host startup, e.g. http://192.168.1.10:3000.",
+  "remoteUrl": "",
+  "port": 3000,
+  "orgName": "Provincial Government of Romblon",
   "startupPath": "/kiosk",
   "kiosk": true,
   "fullscreen": true,
