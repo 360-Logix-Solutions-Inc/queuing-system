@@ -219,15 +219,43 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
+// 80mm thermal roll, the standard for queue tickets.
+const PAPER_WIDTH_MICRONS = 80000;
+// Electron wants microns; the DOM measures in CSS px at 96dpi.
+const MICRONS_PER_CSS_PX = 25400 / 96;
+// Paper width in CSS px, so the hidden window lays the ticket out at exactly the
+// width it will print at — otherwise the measured height is for a different
+// line-wrap than the one that reaches the paper.
+const PAPER_WIDTH_PX = Math.round(PAPER_WIDTH_MICRONS / MICRONS_PER_CSS_PX);
+// A little slack past the last line: thermal cutters sit a few mm beyond the
+// print head, and clipping the timestamp is worse than a thin blank strip.
+const CUT_ALLOWANCE_MICRONS = 5000;
+
 ipcMain.handle("queue:silent-print", async (_event, html) => {
   const printWindow = new BrowserWindow({
-    width: 320,
-    height: 520,
+    width: PAPER_WIDTH_PX,
+    height: 900,
     show: false,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   try {
     await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+    // Cut the paper where the words end. A fixed page height fed the full sheet
+    // every time — roughly half a ticket of blank roll on every transaction.
+    let pageHeight = 200000;
+    try {
+      const contentPx = await printWindow.webContents.executeJavaScript(
+        "Math.ceil(document.documentElement.getBoundingClientRect().height)"
+      );
+      if (Number.isFinite(contentPx) && contentPx > 0) {
+        pageHeight = Math.round(contentPx * MICRONS_PER_CSS_PX) + CUT_ALLOWANCE_MICRONS;
+      }
+    } catch (_) {
+      // Measurement failed — fall back to the old fixed height rather than
+      // risking a page too short to hold the ticket.
+    }
+
     return await new Promise((resolve) => {
       printWindow.webContents.print(
         {
@@ -235,7 +263,7 @@ ipcMain.handle("queue:silent-print", async (_event, html) => {
           printBackground: true,
           deviceName: PRINTER_NAME,
           margins: { marginType: "none" },
-          pageSize: { width: 80000, height: 200000 },
+          pageSize: { width: PAPER_WIDTH_MICRONS, height: pageHeight },
         },
         (success, failureReason) => {
           try { printWindow.close(); } catch (_) {}

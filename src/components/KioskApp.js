@@ -12,6 +12,7 @@ import {
 import { printTicket } from "../lib/queueApp";
 import { notifyTicketSms } from "../lib/smsClient";
 import KioskAccessibilityBar from "./KioskAccessibilityBar";
+import OnScreenKeyboard from "./OnScreenKeyboard";
 import {
   DEFAULT_LANG,
   KIOSK_LANGUAGES,
@@ -71,6 +72,10 @@ export default function KioskApp() {
   const [zoomIndex, setZoomIndex] = useState(0);
   const [speechOn, setSpeechOn] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
+  // Which field the on-screen keyboard is editing. A wall-mounted kiosk has no
+  // physical keyboard, so without this the name and phone cannot be filled in.
+  const [activeField, setActiveField] = useState(null);
+  const [online, setOnline] = useState(true);
 
   const t = (key) => kioskT(lang, key);
 
@@ -108,6 +113,36 @@ export default function KioskApp() {
   useEffect(() => {
     document.documentElement.lang = lang;
   }, [lang]);
+
+  // The keyboard belongs to the details form only; leaving that screen with it
+  // still open would leave it floating over the next one.
+  useEffect(() => {
+    if (step !== "details") setActiveField(null);
+  }, [step]);
+
+  // Offline state. Firestore keeps serving from its local cache and queues
+  // writes, so this is information, not an error — the queue keeps running.
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+
+  const offlinePill = online ? null : (
+    <div className="kiosk-offline" role="status" aria-live="polite">
+      <span className="kiosk-offline-dot" aria-hidden="true" />
+      <span className="kiosk-offline-text">
+        <strong>{t("offline")}</strong>
+        <span>{t("offlineHint")}</span>
+      </span>
+    </div>
+  );
 
   function changeLang(next) {
     setLang(next);
@@ -182,10 +217,16 @@ export default function KioskApp() {
 
   // Every kiosk screen renders through here: content scales, the control bar
   // stays fixed and unscaled so it is reachable at any text size.
+  // Digits only for the phone field, matching the input's own filtering.
+  function typeIntoField(next) {
+    if (activeField === "name") setCustomerName(next);
+    else if (activeField === "phone") setPhone(next.replace(/\D/g, ""));
+  }
+
   function withKioskShell(content) {
     return (
       <div
-        className="kiosk-root"
+        className={`kiosk-root ${activeField ? "keyboard-open" : ""}`}
         style={{
           "--kiosk-zoom": ZOOM_LEVELS[zoomIndex],
           // The control bar grows too — someone who needs 150% text has to be
@@ -204,6 +245,19 @@ export default function KioskApp() {
           onSpeechToggle={toggleSpeech}
           onSpeakAgain={speakScreen}
         />
+        {/* Rendered here, outside .kiosk-zoom-area: a position:fixed element
+            inside a zoomed subtree resolves against the zoomed viewport and
+            lands in the wrong place. */}
+        {activeField ? (
+          <OnScreenKeyboard
+            lang={lang}
+            layout={activeField === "phone" ? "numeric" : "name"}
+            value={activeField === "phone" ? phone : customerName}
+            maxLength={activeField === "phone" ? 11 : 60}
+            onChange={typeIntoField}
+            onClose={() => setActiveField(null)}
+          />
+        ) : null}
       </div>
     );
   }
@@ -389,6 +443,7 @@ export default function KioskApp() {
             {logo ? <img src={logo} alt="" style={{ height: "1.5em", width: "1.5em", objectFit: "contain", borderRadius: 4 }} /> : <span className="brand-dot" />}
             <span>{orgName || "Queuing System"}</span>
           </div>
+          {offlinePill}
         </div>
         <div className="kiosk-services">
           <h1 className="kiosk-heading">{t("servicesTitle")}</h1>
@@ -424,6 +479,7 @@ export default function KioskApp() {
             {logo ? <img src={logo} alt="" style={{ height: "1.5em", width: "1.5em", objectFit: "contain", borderRadius: 4 }} /> : <span className="brand-dot" />}
             <span>{orgName || "Queuing System"}</span>
           </div>
+          {offlinePill}
         </div>
         <div className="form-wrap">
           <div className="panel">
@@ -435,9 +491,15 @@ export default function KioskApp() {
               <label htmlFor="nameInput">{t("nameLabel")} <span className="opt">{t("optional")}</span></label>
               <input
                 id="nameInput"
+                className={activeField === "name" ? "field-active" : ""}
                 placeholder={t("namePlaceholder")}
                 autoComplete="off"
+                // inputMode="none" keeps a tablet's own keyboard from covering
+                // ours; the on-screen one is the only way to type here.
+                inputMode="none"
                 value={customerName}
+                onFocus={() => setActiveField("name")}
+                onClick={() => setActiveField("name")}
                 onChange={(event) => setCustomerName(event.target.value)}
               />
             </div>
@@ -445,13 +507,16 @@ export default function KioskApp() {
               <label htmlFor="phoneInput">{t("phoneLabel")} <span className="opt">{t("optional")}</span></label>
               <input
                 id="phoneInput"
+                className={activeField === "phone" ? "field-active" : ""}
                 type="tel"
                 placeholder="09xxxxxxxxx"
                 autoComplete="off"
-                inputMode="numeric"
+                inputMode="none"
                 pattern="[0-9]*"
                 maxLength={11}
                 value={phone}
+                onFocus={() => setActiveField("phone")}
+                onClick={() => setActiveField("phone")}
                 onChange={(event) => setPhone(event.target.value.replace(/\D/g, ""))}
               />
             </div>
@@ -572,9 +637,12 @@ export default function KioskApp() {
           <span className="brand-dot" aria-hidden="true" />
           <span>{orgName || "Queuing System"}</span>
         </div>
-        <div className="kiosk-clock" suppressHydrationWarning>
-          <div className="kiosk-time tabular">{now ? formatStartTime(now) : "--:--"}</div>
-          <div className="kiosk-date">{now ? formatStartDate(now, languageLocale(lang)) : ""}</div>
+        <div className="kiosk-start-status">
+          {offlinePill}
+          <div className="kiosk-clock" suppressHydrationWarning>
+            <div className="kiosk-time tabular">{now ? formatStartTime(now) : "--:--"}</div>
+            <div className="kiosk-date">{now ? formatStartDate(now, languageLocale(lang)) : ""}</div>
+          </div>
         </div>
       </header>
 

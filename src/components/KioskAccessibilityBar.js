@@ -23,35 +23,9 @@ export default function KioskAccessibilityBar({
   const atMax = zoomIndex >= ZOOM_LEVELS.length - 1;
   const percent = Math.round(ZOOM_LEVELS[zoomIndex] * 100);
 
-  const localLangs = KIOSK_LANGUAGES.filter((item) => item.group === "local");
-  const intlLangs = KIOSK_LANGUAGES.filter((item) => item.group === "intl");
-
   function chooseLang(code) {
     onLangChange(code);
     setPickerOpen(false);
-  }
-
-  function renderGroup(heading, items) {
-    return (
-      <>
-        <div className="lang-group-heading">{heading}</div>
-        <div className="lang-grid">
-          {items.map((item) => (
-            <button
-              key={item.code}
-              type="button"
-              className={`lang-card ${lang === item.code ? "active" : ""}`}
-              lang={item.code}
-              aria-pressed={lang === item.code}
-              onClick={() => chooseLang(item.code)}
-            >
-              <span className="lang-card-native">{item.native}</span>
-              <span className="lang-card-label">{item.label}</span>
-            </button>
-          ))}
-        </div>
-      </>
-    );
   }
 
   return (
@@ -147,8 +121,22 @@ export default function KioskAccessibilityBar({
         >
           <div className="lang-modal">
             <h2 id="langPickerTitle" className="lang-modal-title">{t("chooseLanguage")}</h2>
-            {renderGroup(t("localLanguages"), localLangs)}
-            {renderGroup(t("internationalLanguages"), intlLangs)}
+            {/* One flat grid: six local languages need no grouping. */}
+            <div className="lang-grid">
+              {KIOSK_LANGUAGES.map((item) => (
+                <button
+                  key={item.code}
+                  type="button"
+                  className={`lang-card ${lang === item.code ? "active" : ""}`}
+                  lang={item.code}
+                  aria-pressed={lang === item.code}
+                  onClick={() => chooseLang(item.code)}
+                >
+                  <span className="lang-card-native">{item.native}</span>
+                  <span className="lang-card-label">{item.label}</span>
+                </button>
+              ))}
+            </div>
             <button
               type="button"
               className="btn lang-close"

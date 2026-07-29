@@ -17,9 +17,17 @@ function buildTicketHtml(ticket) {
         <meta charset="UTF-8" />
         <title>Queue Ticket</title>
         <style>
-          @page { size: 80mm auto; margin: 4mm; }
-          body { font-family: Arial, sans-serif; text-align: center; margin: 0; color: #111827; }
-          .org { font-size: 13px; font-weight: 800; margin-top: 8px; }
+          /* Zero page margin so the measured height is the printed height; the
+             side breathing room lives on the body instead. The last element
+             must not carry a bottom margin, or it becomes blank roll. */
+          @page { size: 80mm auto; margin: 0; }
+          html, body { margin: 0; padding: 0; }
+          body {
+            font-family: Arial, sans-serif; text-align: center; color: #111827;
+            padding: 4mm 4mm 2mm;
+          }
+          body > :last-child { margin-bottom: 0; }
+          .org { font-size: 13px; font-weight: 800; margin-top: 0; }
           .service { font-size: 14px; margin-top: 8px; }
           .number { font-size: 42px; font-weight: 900; letter-spacing: 1px; margin: 14px 0; }
           .priority { font-size: 16px; font-weight: 900; color: #DC2626; margin-bottom: 8px; }

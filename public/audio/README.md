@@ -26,7 +26,7 @@ public/audio/
 ```
 
 Folder names are the language codes from `src/lib/kioskI18n.js`:
-`en, fil, rol, bno, loc, ceb, ko, zh, ja, de, fr, es`.
+`en, fil, rol, bno, loc, ceb`.
 
 Format: **MP3**, mono, 44.1 kHz is plenty. Trim the silence at both ends —
 clips play back to back, and leading silence turns a sentence into a stutter.

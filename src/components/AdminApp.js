@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import OnScreenKeyboard from "./OnScreenKeyboard";
 import {
   addAdminToClient,
   addCounter,
@@ -56,6 +57,8 @@ export default function AdminApp() {
   const [error, setError] = useState("");
   const [loadingDone, setLoadingDone] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Which login field the on-screen keyboard is editing, or null when closed.
+  const [loginField, setLoginField] = useState(null);
 
   // Auto-dismiss notices after 3s, errors after 5s
   useEffect(() => {
@@ -103,8 +106,10 @@ export default function AdminApp() {
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe?.());
   }, [session]);
 
+  // Called both as a form submit handler and directly from the on-screen
+  // keyboard's Done key, which has no event to cancel.
   async function handleLogin(event) {
-    event.preventDefault();
+    event?.preventDefault?.();
     setError("");
     try {
       const nextSession = await adminLogin(login.email, login.password);
@@ -265,12 +270,22 @@ export default function AdminApp() {
       <main className="page auth-page">
         <form className="auth-panel" onSubmit={handleLogin}>
           <h1 className="auth-title">Queue Account Login</h1>
-          <input placeholder="Email" value={login.email} onChange={(e) => setLogin({ ...login, email: e.target.value })} />
+          <input
+            placeholder="Email"
+            className={loginField === "email" ? "field-active" : ""}
+            value={login.email}
+            onFocus={() => setLoginField("email")}
+            onClick={() => setLoginField("email")}
+            onChange={(e) => setLogin({ ...login, email: e.target.value })}
+          />
           <div className="password-field">
             <input
               placeholder="Password"
+              className={loginField === "password" ? "field-active" : ""}
               type={showPassword ? "text" : "password"}
               value={login.password}
+              onFocus={() => setLoginField("password")}
+              onClick={() => setLoginField("password")}
               onChange={(e) => setLogin({ ...login, password: e.target.value })}
             />
             <button
@@ -295,6 +310,25 @@ export default function AdminApp() {
           <button className="btn primary full-width">Login</button>
           {error ? <div className="notice error">{error}</div> : null}
         </form>
+
+        {/* Counter and admin terminals are the same touch hardware as the
+            kiosk, so the login needs a keyboard too. Password input is masked
+            in the preview and shift is a real toggle — silently lower-casing a
+            password would lock staff out of their own account. */}
+        {loginField ? (
+          <OnScreenKeyboard
+            layout="text"
+            value={loginField === "email" ? login.email : login.password}
+            mask={loginField === "password" && !showPassword}
+            maxLength={loginField === "email" ? 120 : 64}
+            onChange={(next) => setLogin({ ...login, [loginField]: next })}
+            onClose={() => setLoginField(null)}
+            onSubmit={() => {
+              setLoginField(null);
+              handleLogin();
+            }}
+          />
+        ) : null}
       </main>
     );
   }
