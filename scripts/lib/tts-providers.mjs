@@ -11,9 +11,13 @@
 //   google                 Google Cloud TTS. Neural (WaveNet) quality, needs
 //                          GOOGLE_TTS_API_KEY. Best result if you have an account.
 //   azure                  Azure Speech. Neural, needs AZURE_SPEECH_KEY + REGION.
+//   mms                    Meta MMS-TTS, run locally. The ONLY engine with real
+//                          Romblomanon and Asi voices; everything else renders
+//                          those two with a Filipino stand-in. CC-BY-NC 4.0.
 //
 // Quality ranking: azure ≈ google > gtranslate. Availability ranking is the
-// exact reverse, which is why gtranslate is the default.
+// exact reverse, which is why gtranslate is the default. For rol and bno the
+// right answer is mms regardless, because it is the only one in-language.
 
 import { spawn } from "node:child_process";
 
@@ -40,13 +44,12 @@ function assertMp3(buf, provider) {
 
 // --- gtranslate -------------------------------------------------------------
 
-// Romblomanon, Asi, Onhan and Cebuano have no voice at any provider. They fall
-// back to Filipino, whose shared orthography and five-vowel system make it
-// intelligible — a stand-in, not a substitute for a native recording.
-// (Cebuano has a Translate language code but no TTS voice: it 400s.)
+// The three Romblon languages have no voice here, so they fall back to Filipino:
+// intelligible thanks to shared orthography, but the wrong prosody. Prefer the
+// `mms` provider for those — it is in-language for rol and bno, and Hiligaynon
+// rather than Tagalog for loc.
 const GTRANSLATE_LOCALE = {
-  en: "en", fil: "tl", rol: "tl", bno: "tl", loc: "tl", ceb: "tl",
-  ko: "ko", zh: "zh-CN", ja: "ja", de: "de", fr: "fr", es: "es",
+  en: "en", fil: "tl", rol: "tl", bno: "tl", loc: "tl",
 };
 
 const gtranslate = {
@@ -89,13 +92,6 @@ const GOOGLE_VOICE = {
   rol: { code: "fil-PH", name: "fil-PH-Wavenet-A" },
   bno: { code: "fil-PH", name: "fil-PH-Wavenet-A" },
   loc: { code: "fil-PH", name: "fil-PH-Wavenet-A" },
-  ceb: { code: "fil-PH", name: "fil-PH-Wavenet-A" },
-  ko:  { code: "ko-KR", name: "ko-KR-Wavenet-A" },
-  zh:  { code: "cmn-CN", name: "cmn-CN-Wavenet-A" },
-  ja:  { code: "ja-JP", name: "ja-JP-Wavenet-A" },
-  de:  { code: "de-DE", name: "de-DE-Wavenet-C" },
-  fr:  { code: "fr-FR", name: "fr-FR-Wavenet-C" },
-  es:  { code: "es-ES", name: "es-ES-Wavenet-C" },
 };
 
 const google = {
@@ -144,13 +140,6 @@ const AZURE_VOICE = {
   rol: "fil-PH-BlessicaNeural",
   bno: "fil-PH-BlessicaNeural",
   loc: "fil-PH-BlessicaNeural",
-  ceb: "fil-PH-BlessicaNeural",
-  ko: "ko-KR-SunHiNeural",
-  zh: "zh-CN-XiaoxiaoNeural",
-  ja: "ja-JP-NanamiNeural",
-  de: "de-DE-KatjaNeural",
-  fr: "fr-FR-DeniseNeural",
-  es: "es-ES-ElviraNeural",
 };
 
 const azure = {
@@ -206,11 +195,13 @@ const azure = {
 //
 // Codes are ISO 639-3, matching the facebook/mms-tts-<code> repos.
 const MMS_MODEL = {
-  en: "eng", fil: "tgl", rol: "rol", bno: "bno", ceb: "ceb",
-  ko: "kor", ja: "jpn", de: "deu", fr: "fra", es: "spa",
-  // zh: MMS splits Chinese into regional codes that do not map cleanly to the
-  // kiosk's single `zh`; use another provider for it.
-  // loc: no upstream model.
+  en: "eng", fil: "tgl", rol: "rol", bno: "bno",
+  // Onhan has no model of its own. Hiligaynon is the nearest one that exists:
+  // both are Western Bisayan, and the Onhan strings in kioskI18n.js already use
+  // Hiligaynon-adjacent vocabulary ("imo", "hasta", "nga", "it"). Far closer
+  // than reading Onhan with a Tagalog voice, which is what every other provider
+  // falls back to — but still a stand-in, so keep it on the native-review list.
+  loc: "hil",
 };
 
 // One long-lived Python host for the whole run. Loading a VITS model costs
@@ -271,14 +262,27 @@ function mmsHost(paths) {
 // errors outright, and `rol` produced ~0.3s of noise rather than a number. So
 // digits are handed over as words instead.
 //
-// These are the standard Visayan numerals, which Romblomanon uses directly and
-// Asi speakers understand. Asi's own forms shift l -> y (lima -> yima, walo ->
-// wayo); those are NOT used here because they are unverified. Have a native
-// speaker check the Asi digits along with the rest of its strings.
-const MMS_DIGITS = {
+// Western Bisayan numerals, used by Romblomanon and Onhan.
+const MMS_DIGITS_DEFAULT = {
   0: "sero", 1: "isa", 2: "duha", 3: "tatlo", 4: "apat",
   5: "lima", 6: "anom", 7: "pito", 8: "walo", 9: "siyam",
 };
+
+// Asi applies a systematic l -> y shift, and the Asi strings in kioskI18n.js
+// already follow it throughout (balik -> bayik, maghulat -> maghuyat, isulat ->
+// isuyat). Leaving the numerals with an intact /l/ contradicted the rest of the
+// language, so the three that contain one are shifted to match. Still on the
+// native-review list along with the rest of the Asi table.
+const MMS_DIGITS = {
+  bno: { ...MMS_DIGITS_DEFAULT, 3: "tatyo", 5: "yima", 8: "wayo" },
+};
+
+function digitWord(lang, digit) {
+  return (MMS_DIGITS[lang] || MMS_DIGITS_DEFAULT)[digit];
+}
+
+
+
 
 const mms = {
   id: "mms",
@@ -301,7 +305,7 @@ const mms = {
 
     const dir = mkdtempSync(join(tmpdir(), "mms-"));
     const wav = join(dir, "out.wav");
-    const spoken = /^\d$/.test(text) ? MMS_DIGITS[Number(text)] : text;
+    const spoken = /^\d$/.test(text) ? digitWord(lang, Number(text)) : text;
 
     try {
       await mmsHost(paths).request({ model, text: spoken, wav });
