@@ -4339,6 +4339,14 @@ a { color: inherit; text-decoration: none; }
   font-size: 17px; font-weight: 700;
 }
 
+/* Offline SMS notice inside the alerts checkbox row. */
+.sms-queued-note {
+  display: inline-block;
+  margin-top: 4px;
+  color: #B45309;
+  font-style: normal; font-weight: 700;
+}
+
 /* ====== OFFLINE INDICATOR ====== */
 
 /* Amber, not red: the queue keeps working offline — Firestore serves from its
