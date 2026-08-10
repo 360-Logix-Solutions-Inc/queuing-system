@@ -7,6 +7,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromCache,
   setDoc,
   addDoc,
   updateDoc,
@@ -404,6 +405,56 @@ export async function createTicket({ clientId = DEFAULT_CLIENT_ID, serviceId, cu
   const sequenceId = `${normalizedClientId}_${serviceDate}_${service.prefix}`;
   const sequenceRef = doc(db, "queueSequences", sequenceId);
 
+  const buildTicket = (queueNumber, ticketId, extra = {}) => {
+    const cleanName = String(customerName || "").trim();
+    const cleanPhone = String(phone || "").trim();
+    const cleanPriority = ["SC", "PWD", "PG"].includes(priorityType) ? priorityType : null;
+    return {
+      id: ticketId,
+      clientId: normalizedClientId,
+      serviceDate,
+      serviceId: service.id,
+      serviceName: service.name,
+      prefix: service.prefix,
+      queueNumber,
+      customerName: cleanName || null,
+      phone: cleanPhone || null,
+      priorityType: cleanPriority,
+      priorityRank: cleanPriority ? 0 : 1,
+      status: "waiting",
+      counterNo: null,
+      calledAt: null,
+      completedAt: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      ...extra,
+    };
+  };
+
+  try {
+    return await issueTicketOnline({ db, sequenceRef, sequenceId, service, serviceDate, normalizedClientId, buildTicket, appConfig });
+  } catch (err) {
+    // Firestore transactions need a live round-trip to the backend — they
+    // cannot run against the local cache, so they reject outright the moment
+    // the internet drops. Everything else on the kiosk keeps working from
+    // cache, so without this fallback the one operation that matters is the
+    // only one that fails.
+    if (!isOfflineError(err)) throw err;
+    return issueTicketOffline({ db, sequenceRef, sequenceId, service, serviceDate, normalizedClientId, buildTicket, appConfig });
+  }
+}
+
+function isOfflineError(err) {
+  const code = err?.code || "";
+  const message = String(err?.message || "");
+  return (
+    code === "unavailable" ||
+    code === "failed-precondition" ||
+    /offline|unavailable|could not reach|backend/i.test(message)
+  );
+}
+
+async function issueTicketOnline({ db, sequenceRef, service, buildTicket, appConfig }) {
   return runTransaction(db, async (tx) => {
     const sequenceSnap = await tx.get(sequenceRef);
     const current = sequenceSnap.exists() ? Number(sequenceSnap.data().lastNumber || 0) : 0;
@@ -422,33 +473,87 @@ export async function createTicket({ clientId = DEFAULT_CLIENT_ID, serviceId, cu
 
     const queueNumber = `${service.prefix}-${String(next).padStart(3, "0")}`;
     const ticketRef = doc(db, "queueTickets", `${normalizedClientId}_${serviceDate}_${queueNumber}`);
-    const cleanName = String(customerName || "").trim();
-    const cleanPhone = String(phone || "").trim();
-    const cleanPriority = ["SC", "PWD", "PG"].includes(priorityType) ? priorityType : null;
-
-    const ticket = {
-      id: ticketRef.id,
-      clientId: normalizedClientId,
-      serviceDate,
-      serviceId: service.id,
-      serviceName: service.name,
-      prefix: service.prefix,
-      queueNumber,
-      customerName: cleanName || null,
-      phone: cleanPhone || null,
-      priorityType: cleanPriority,
-      priorityRank: cleanPriority ? 0 : 1,
-      status: "waiting",
-      counterNo: null,
-      calledAt: null,
-      completedAt: null,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
+    const ticket = buildTicket(queueNumber, ticketRef.id);
 
     tx.set(ticketRef, ticket);
     return { ...ticket, orgName: appConfig.orgName };
   });
+}
+
+// Issues a number without touching the backend. Firestore queues the writes in
+// IndexedDB and flushes them on reconnect, so the ticket is real — it just has
+// not reached the server yet.
+//
+// The number comes from the cached sequence plus a locally tracked offset, so a
+// stretch of offline tickets still counts up instead of all landing on the same
+// number. With a single kiosk that matches what the server would have issued.
+// Two kiosks offline at once can hand out the same printed number; the ticket
+// DOCUMENTS stay distinct (the id carries a device-local suffix), so nothing is
+// lost on sync, but the paper can collide. Note it if a second kiosk is added.
+const OFFLINE_OFFSET_KEY = "queue_offline_seq";
+
+function readOfflineOffsets() {
+  try { return JSON.parse(window.localStorage.getItem(OFFLINE_OFFSET_KEY) || "{}"); }
+  catch (_) { return {}; }
+}
+
+function bumpOfflineOffset(sequenceId) {
+  const all = readOfflineOffsets();
+  const next = Number(all[sequenceId] || 0) + 1;
+  all[sequenceId] = next;
+  try { window.localStorage.setItem(OFFLINE_OFFSET_KEY, JSON.stringify(all)); } catch (_) {}
+  return next;
+}
+
+async function issueTicketOffline({ db, sequenceRef, sequenceId, service, serviceDate, normalizedClientId, buildTicket, appConfig }) {
+  let cachedLast = 0;
+  try {
+    const snap = await getDocFromCache(sequenceRef);
+    cachedLast = Number(snap.data()?.lastNumber || 0);
+  } catch (_) {
+    // No cached sequence for today yet — start from zero.
+  }
+
+  const offset = bumpOfflineOffset(sequenceId);
+  const next = cachedLast + offset;
+  const queueNumber = `${service.prefix}-${String(next).padStart(3, "0")}`;
+
+  // A device-local suffix keeps two offline kiosks from writing over each
+  // other's ticket when they both reconnect.
+  const deviceTag = getDeviceTag();
+  const ticketRef = doc(
+    db,
+    "queueTickets",
+    `${normalizedClientId}_${serviceDate}_${queueNumber}_${deviceTag}`
+  );
+
+  const ticket = buildTicket(queueNumber, ticketRef.id, { issuedOffline: true });
+
+  // Deliberately not awaited: offline, the promise only settles once the write
+  // reaches the server, which may be hours away. The local cache is updated
+  // synchronously, so the ticket is already usable.
+  setDoc(ticketRef, ticket).catch(() => {});
+  setDoc(sequenceRef, {
+    serviceDate,
+    prefix: service.prefix,
+    lastNumber: next,
+    updatedAt: serverTimestamp(),
+  }, { merge: true }).catch(() => {});
+
+  return { ...ticket, orgName: appConfig.orgName };
+}
+
+function getDeviceTag() {
+  try {
+    let tag = window.localStorage.getItem("queue_device_tag");
+    if (!tag) {
+      tag = Math.random().toString(36).slice(2, 8);
+      window.localStorage.setItem("queue_device_tag", tag);
+    }
+    return tag;
+  } catch (_) {
+    return "local";
+  }
 }
 
 export function listenWaitingTickets(callback) {

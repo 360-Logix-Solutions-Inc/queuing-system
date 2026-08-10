@@ -4421,15 +4421,17 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
 }
 
-.kb-rows { display: flex; flex-direction: column; gap: 0.4em; }
-.kb-row { display: flex; gap: 0.35em; justify-content: center; }
+.kb-rows { display: flex; flex-direction: column; gap: 0.5em; }
+.kb-row { display: flex; gap: 0.4em; justify-content: center; }
 .kb-key {
   flex: 1 1 0;
-  min-width: 2.2em; min-height: 3em;
+  /* Tall keys on purpose: this is a wall-mounted touch panel, and the strip was
+     leaving a dead gap between the form card and the top of the keyboard. */
+  min-width: 2.4em; min-height: 3.9em;
   border-radius: 0.5em;
   background: rgba(255,255,255,.12);
   color: #ECFDF5;
-  font-size: 1.15em; font-weight: 700;
+  font-size: 1.3em; font-weight: 700;
   transition: background .12s var(--ease);
 }
 .kb-key:hover { background: rgba(255,255,255,.22); }
@@ -4446,11 +4448,11 @@ a { color: inherit; text-decoration: none; }
   grid-template-columns: repeat(3, 1fr);
   gap: 0.45em;
 }
-.kb-numpad .kb-key { min-height: 3.4em; font-size: 1.5em; }
+.kb-numpad .kb-key { min-height: 4.4em; font-size: 1.8em; }
 
 /* The form must not sit under the keyboard while it is open. */
 .kiosk-root.keyboard-open .kiosk-zoom-area .page {
-  padding-bottom: calc(430px / var(--kiosk-zoom, 1));
+  padding-bottom: calc(560px / var(--kiosk-zoom, 1));
 }
 
 /* Login screen: the panel is centred on the cross axis, so it is align-items
@@ -4461,7 +4463,7 @@ a { color: inherit; text-decoration: none; }
   /* Reclaim the top inset too: on a 703px viewport the panel cleared the
      keyboard by -5px with the default 24px, i.e. just barely not. */
   padding-top: 8px;
-  padding-bottom: 430px;
+  padding-bottom: 560px;
   overflow-y: auto;
 }
 .field-active {
