@@ -431,9 +431,19 @@ export async function createTicket({ clientId = DEFAULT_CLIENT_ID, serviceId, cu
     };
   };
 
+  // Known-offline: go straight to the local path. Letting the transaction fail
+  // first still produces a ticket, but the customer watches a spinner while
+  // Firestore exhausts its retries — the one moment the kiosk should feel
+  // FASTER offline, since nothing has to leave the building.
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return issueTicketOffline({ db, sequenceRef, sequenceId, service, serviceDate, normalizedClientId, buildTicket, appConfig });
+  }
+
   try {
     return await issueTicketOnline({ db, sequenceRef, sequenceId, service, serviceDate, normalizedClientId, buildTicket, appConfig });
   } catch (err) {
+    // Still needed: the interface can be up while the backend is unreachable,
+    // which navigator.onLine cannot see.
     // Firestore transactions need a live round-trip to the backend — they
     // cannot run against the local cache, so they reject outright the moment
     // the internet drops. Everything else on the kiosk keeps working from
