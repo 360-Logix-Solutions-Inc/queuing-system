@@ -219,17 +219,17 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// 80mm thermal roll, the standard for queue tickets.
-const PAPER_WIDTH_MICRONS = 80000;
+// 2 x 3 inch ticket stock. Fixed, not a roll: the sheet is already cut to size,
+// so the page must match it exactly and the layout has to fit inside rather
+// than grow to suit the content.
+const PAPER_WIDTH_MICRONS = 50800;    // 2in
+const PAPER_HEIGHT_MICRONS = 76200;   // 3in
 // Electron wants microns; the DOM measures in CSS px at 96dpi.
 const MICRONS_PER_CSS_PX = 25400 / 96;
 // Paper width in CSS px, so the hidden window lays the ticket out at exactly the
-// width it will print at — otherwise the measured height is for a different
-// line-wrap than the one that reaches the paper.
+// width it will print at — otherwise the line-wrap measured here is not the one
+// that reaches the paper.
 const PAPER_WIDTH_PX = Math.round(PAPER_WIDTH_MICRONS / MICRONS_PER_CSS_PX);
-// A little slack past the last line: thermal cutters sit a few mm beyond the
-// print head, and clipping the timestamp is worse than a thin blank strip.
-const CUT_ALLOWANCE_MICRONS = 5000;
 
 ipcMain.handle("queue:silent-print", async (_event, html) => {
   const printWindow = new BrowserWindow({
@@ -241,20 +241,20 @@ ipcMain.handle("queue:silent-print", async (_event, html) => {
   try {
     await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
-    // Cut the paper where the words end. A fixed page height fed the full sheet
-    // every time — roughly half a ticket of blank roll on every transaction.
-    let pageHeight = 200000;
+    // The stock is pre-cut, so overflow does not spill onto more paper — it is
+    // simply lost off the bottom edge. Measure and warn rather than discover it
+    // on a customer's ticket.
     try {
-      const contentPx = await printWindow.webContents.executeJavaScript(
-        "Math.ceil(document.documentElement.getBoundingClientRect().height)"
+      const overflowPx = await printWindow.webContents.executeJavaScript(
+        "Math.max(0, document.body.scrollHeight - document.body.clientHeight)"
       );
-      if (Number.isFinite(contentPx) && contentPx > 0) {
-        pageHeight = Math.round(contentPx * MICRONS_PER_CSS_PX) + CUT_ALLOWANCE_MICRONS;
+      if (overflowPx > 1) {
+        console.warn(
+          `[print] ticket content overflows the 2x3in sheet by ${overflowPx}px — ` +
+          "the bottom will be cut off. Shrink the sizes in buildTicketHtml()."
+        );
       }
-    } catch (_) {
-      // Measurement failed — fall back to the old fixed height rather than
-      // risking a page too short to hold the ticket.
-    }
+    } catch (_) { /* measurement is advisory only */ }
 
     return await new Promise((resolve) => {
       printWindow.webContents.print(
@@ -263,7 +263,7 @@ ipcMain.handle("queue:silent-print", async (_event, html) => {
           printBackground: true,
           deviceName: PRINTER_NAME,
           margins: { marginType: "none" },
-          pageSize: { width: PAPER_WIDTH_MICRONS, height: pageHeight },
+          pageSize: { width: PAPER_WIDTH_MICRONS, height: PAPER_HEIGHT_MICRONS },
         },
         (success, failureReason) => {
           try { printWindow.close(); } catch (_) {}
