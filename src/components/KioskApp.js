@@ -10,7 +10,7 @@ import {
   SERVICES,
 } from "../lib/firebaseClient";
 import { printTicket } from "../lib/queueApp";
-import { notifyTicketSms } from "../lib/smsClient";
+import { flushSmsQueue, notifyTicketSms } from "../lib/smsClient";
 import KioskAccessibilityBar from "./KioskAccessibilityBar";
 import OnScreenKeyboard from "./OnScreenKeyboard";
 import {
@@ -27,6 +27,11 @@ import { announce, initSpeech, spellQueueNumber, stopSpeaking } from "../lib/kio
 const LANG_KEY = "queue_kiosk_lang";
 const ZOOM_KEY = "queue_kiosk_zoom";
 const SPEECH_KEY = "queue_kiosk_speech";
+
+// How long non-default accessibility settings survive on the start screen with
+// nothing happening. Long enough to read the screen in your own language;
+// short enough that the next person is not handed someone else's setup.
+const IDLE_RESET_MS = 90_000;
 
 function formatStartTime(d) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -120,11 +125,24 @@ export default function KioskApp() {
     if (step !== "details") setActiveField(null);
   }, [step]);
 
+  // resetFlow covers the customer who finishes. This covers the one who picks a
+  // language, thinks better of it and walks off without starting — otherwise
+  // their settings sit there waiting for whoever comes next. The timer restarts
+  // on every settings change, which is the only activity this screen has.
+  useEffect(() => {
+    if (step !== "start") return undefined;
+    const isDefault = lang === DEFAULT_LANG && zoomIndex === 0 && !speechOn;
+    if (isDefault) return undefined;
+    const timer = setTimeout(resetAccessibility, IDLE_RESET_MS);
+    return () => clearTimeout(timer);
+  }, [step, lang, zoomIndex, speechOn]);
+
   // Offline state. Firestore keeps serving from its local cache and queues
   // writes, so this is information, not an error — the queue keeps running.
   useEffect(() => {
     setOnline(navigator.onLine);
-    const up = () => setOnline(true);
+    if (navigator.onLine) flushSmsQueue();
+    const up = () => { setOnline(true); flushSmsQueue(); };
     const down = () => setOnline(false);
     window.addEventListener("online", up);
     window.addEventListener("offline", down);
@@ -410,6 +428,23 @@ export default function KioskApp() {
     }
   }
 
+  // Hands the terminal back in its default state. Accessibility settings belong
+  // to the person standing there, not to the machine: leaving Ini at 150% for
+  // the next customer means they walk up to a screen they cannot read. The
+  // settings still persist DURING a transaction, so a mid-flow reload keeps
+  // them — they are only dropped once that customer is finished.
+  function resetAccessibility() {
+    setLang(DEFAULT_LANG);
+    setZoomIndex(0);
+    setSpeechOn(false);
+    stopSpeaking();
+    try {
+      window.localStorage.removeItem(LANG_KEY);
+      window.localStorage.removeItem(ZOOM_KEY);
+      window.localStorage.removeItem(SPEECH_KEY);
+    } catch (_) {}
+  }
+
   function resetFlow() {
     setStep("start");
     setSelectedService(null);
@@ -421,6 +456,7 @@ export default function KioskApp() {
     setConsent(false);
     setShowConsent(false);
     setMessage("");
+    resetAccessibility();
   }
 
   if (setupError) {
@@ -530,6 +566,15 @@ export default function KioskApp() {
               <span className="consent-text">
                 <strong>{t("smsTitle")}</strong><br />
                 {t("smsDesc")}
+                {/* Offline the send cannot leave the building, so say so rather
+                    than take the tick and quietly deliver nothing. It is
+                    queued and retried, not dropped. */}
+                {!online && sendSmsAlerts ? (
+                  <>
+                    <br />
+                    <em className="sms-queued-note">{t("smsQueued")}</em>
+                  </>
+                ) : null}
               </span>
             </label>
             <div className="section-label" id="priorityLabel">{t("priorityLane")}</div>

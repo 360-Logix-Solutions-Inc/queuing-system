@@ -88,6 +88,7 @@ const STRINGS = {
     offline: "Offline",
     offlineHint: "Works without internet",
     shift: "Shift",
+    smsQueued: "SMS will be sent once the internet returns.",
   },
 
   fil: {
@@ -151,6 +152,7 @@ const STRINGS = {
     offline: "Offline",
     offlineHint: "Gumagana kahit walang internet",
     shift: "Shift",
+    smsQueued: "Ipapadala ang SMS kapag bumalik ang internet.",
   },
 
   // Romblomanon (Ini) — Romblon, San Agustin, Cajidiocan, Magdiwang, San Fernando
@@ -215,6 +217,7 @@ const STRINGS = {
     offline: "Offline",
     offlineHint: "Nagaandar bisan wara it internet",
     shift: "Shift",
+    smsQueued: "Ipadara ang SMS kon magbalik run ang internet.",
   },
 
   // Asi / Bantoanon — Banton, Odiongan, Calatrava, Corcuera, Concepcion, San Andres
@@ -279,6 +282,7 @@ const STRINGS = {
     offline: "Offline",
     offlineHint: "Nagaandar bisan wayay internet",
     shift: "Shift",
+    smsQueued: "Ipadaya ang SMS kung magbayik ra ang internet.",
   },
 
   // Onhan / Inunhan — Looc, Alcantara, Santa Fe, Santa Maria, San Jose
@@ -343,6 +347,7 @@ const STRINGS = {
     offline: "Offline",
     offlineHint: "Nagaandar bisan wara it internet",
     shift: "Shift",
+    smsQueued: "Ipadara ang SMS kon magbalik ron ang internet.",
   },
 
 };
