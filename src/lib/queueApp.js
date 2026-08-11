@@ -17,34 +17,41 @@ function buildTicketHtml(ticket) {
         <meta charset="UTF-8" />
         <title>Queue Ticket</title>
         <style>
-          /* 2 x 3 inch ticket stock. Fixed page, zero page margin: the sheet is
-             die-cut to size, so the layout has to fit rather than grow. Every
-             size below is tuned against that 50.8 x 76.2mm box — see the
-             measured worst case in electron/main.js. */
-          @page { size: 50.8mm 76.2mm; margin: 0; }
+          /* Ticket stock is 3in WIDE by 2in TALL. Fixed page, zero page margin:
+             the sheet is die-cut, so the layout has to fit rather than grow —
+             overflow is not extra paper, it falls off the edge. Landscape buys
+             width, which keeps the org and service names on one line each and
+             leaves the vertical budget to the queue number. Sizes are tuned
+             against the measured worst case; see electron/main.js. */
+          @page { size: 76.2mm 50.8mm; margin: 0; }
           html, body { margin: 0; padding: 0; }
           body {
             font-family: Arial, sans-serif; text-align: center; color: #111827;
-            width: 50.8mm; height: 76.2mm;
-            padding: 3mm 2.5mm 2mm;
+            width: 76.2mm; height: 50.8mm;
+            padding: 2.5mm 3mm 2mm;
             box-sizing: border-box;
             display: flex; flex-direction: column; justify-content: center;
             overflow: hidden;
           }
           .org {
-            font-size: 9px; font-weight: 800; line-height: 1.2;
+            font-size: 11px; font-weight: 800; line-height: 1.15;
             /* Long LGU names wrap; two lines is the budget. */
-            max-height: 2.4em; overflow: hidden;
+            max-height: 2.3em; overflow: hidden;
           }
-          .service { font-size: 10px; line-height: 1.2; margin-top: 3px; }
-          .number { font-size: 34px; font-weight: 900; letter-spacing: .5px; margin: 6px 0 4px; }
-          .priority { font-size: 11px; font-weight: 900; color: #DC2626; margin-bottom: 3px; }
-          .name {
-            font-size: 9px; margin-bottom: 2px;
+          .service {
+            font-size: 11px; line-height: 1.15; margin-top: 2px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
           }
-          .small { font-size: 7px; color: #374151; line-height: 1.25; margin-top: 3px; }
-          .line { border-top: 1px dashed #9CA3AF; margin: 4px 0; }
+          .number { font-size: 40px; font-weight: 900; letter-spacing: .5px; margin: 3px 0 2px; }
+          .priority { font-size: 12px; font-weight: 900; color: #DC2626; margin-bottom: 2px; }
+          .name {
+            font-size: 10px; margin-bottom: 1px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+          }
+          /* Near-black, not grey: this prints on a low-resolution thermal head
+             and the previous #374151 at 7px was already faint on screen. */
+          .small { font-size: 8px; color: #1F2937; line-height: 1.2; margin-top: 2px; }
+          .line { border-top: 1px dashed #6B7280; margin: 3px 0; }
         </style>
       </head>
       <body>

@@ -219,11 +219,11 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// 2 x 3 inch ticket stock. Fixed, not a roll: the sheet is already cut to size,
-// so the page must match it exactly and the layout has to fit inside rather
-// than grow to suit the content.
-const PAPER_WIDTH_MICRONS = 50800;    // 2in
-const PAPER_HEIGHT_MICRONS = 76200;   // 3in
+// Ticket stock is 3in wide by 2in tall — landscape, not portrait. Fixed, not a
+// roll: the sheet is already cut to size, so the page must match it exactly and
+// the layout has to fit inside rather than grow to suit the content.
+const PAPER_WIDTH_MICRONS = 76200;    // 3in across
+const PAPER_HEIGHT_MICRONS = 50800;   // 2in down
 // Electron wants microns; the DOM measures in CSS px at 96dpi.
 const MICRONS_PER_CSS_PX = 25400 / 96;
 // Paper width in CSS px, so the hidden window lays the ticket out at exactly the
