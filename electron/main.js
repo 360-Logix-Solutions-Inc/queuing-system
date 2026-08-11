@@ -219,47 +219,15 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// Label stock is 3in ACROSS by 2in DOWN, and the text must read upright along
-// that 3in width — `landscape: false` below means "do not rotate", not "make it
-// taller than wide"; the shape comes from pageSize.
-//
-// Pre-cut labels, not a roll: the page must match the label exactly. A size the
-// driver rejects sends Chromium back to its default paper, which tiled one
-// ticket across six labels, rotated, with its own header printed on them.
-const PAPER_WIDTH_MICRONS = 76200;    // 3in across
-const PAPER_HEIGHT_MICRONS = 50800;   // 2in down
-// Electron wants microns; the DOM measures in CSS px at 96dpi.
-const MICRONS_PER_CSS_PX = 25400 / 96;
-// Paper width in CSS px, so the hidden window lays the ticket out at exactly the
-// width it will print at — otherwise the line-wrap measured here is not the one
-// that reaches the paper.
-const PAPER_WIDTH_PX = Math.round(PAPER_WIDTH_MICRONS / MICRONS_PER_CSS_PX);
-
 ipcMain.handle("queue:silent-print", async (_event, html) => {
   const printWindow = new BrowserWindow({
-    width: PAPER_WIDTH_PX,
-    height: 900,
+    width: 320,
+    height: 520,
     show: false,
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   try {
     await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-
-    // The stock is pre-cut, so overflow does not spill onto more paper — it is
-    // simply lost off the bottom edge. Measure and warn rather than discover it
-    // on a customer's ticket.
-    try {
-      const overflowPx = await printWindow.webContents.executeJavaScript(
-        "Math.max(0, document.body.scrollHeight - document.body.clientHeight)"
-      );
-      if (overflowPx > 1) {
-        console.warn(
-          `[print] ticket content overflows the 2x3in sheet by ${overflowPx}px — ` +
-          "the bottom will be cut off. Shrink the sizes in buildTicketHtml()."
-        );
-      }
-    } catch (_) { /* measurement is advisory only */ }
-
     return await new Promise((resolve) => {
       printWindow.webContents.print(
         {
@@ -267,19 +235,7 @@ ipcMain.handle("queue:silent-print", async (_event, html) => {
           printBackground: true,
           deviceName: PRINTER_NAME,
           margins: { marginType: "none" },
-          pageSize: { width: PAPER_WIDTH_MICRONS, height: PAPER_HEIGHT_MICRONS },
-          landscape: false,
-          // Do not let the driver shrink-to-fit; the layout is already exact.
-          scaleFactor: 100,
-          copies: 1,
-          pagesPerSheet: 1,
-          collate: false,
-          // The hard guard. One ticket must never consume more than one label,
-          // and a page-size mismatch silently paginates: a rejected custom size
-          // falls back to Letter, which tiled a single ticket across SIX labels
-          // — rotated, with Chromium's own header and date printed on them.
-          // Even if layout paginates again, only the first page reaches paper.
-          pageRanges: [{ from: 0, to: 0 }],
+          pageSize: { width: 80000, height: 200000 },
         },
         (success, failureReason) => {
           try { printWindow.close(); } catch (_) {}

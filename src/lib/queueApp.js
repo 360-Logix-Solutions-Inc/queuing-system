@@ -17,41 +17,15 @@ function buildTicketHtml(ticket) {
         <meta charset="UTF-8" />
         <title>Queue Ticket</title>
         <style>
-          /* Label stock is 3in ACROSS by 2in DOWN, text reading upright along
-             the width. Fixed page, zero page margin: the label is pre-cut, so
-             the layout has to fit rather than grow — overflow is not extra
-             paper, it falls off the edge, and a size the driver rejects gets
-             tiled across several labels. Sizes are tuned against the measured
-             worst case; the page itself is set in electron/main.js. */
-          @page { size: 76.2mm 50.8mm; margin: 0; }
-          html, body { margin: 0; padding: 0; }
-          body {
-            font-family: Arial, sans-serif; text-align: center; color: #111827;
-            width: 76.2mm; height: 50.8mm;
-            padding: 2.5mm 3mm 2mm;
-            box-sizing: border-box;
-            display: flex; flex-direction: column; justify-content: center;
-            overflow: hidden;
-          }
-          .org {
-            font-size: 11px; font-weight: 800; line-height: 1.15;
-            /* Long LGU names wrap; two lines is the budget. */
-            max-height: 2.3em; overflow: hidden;
-          }
-          .service {
-            font-size: 11px; line-height: 1.15; margin-top: 2px;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-          }
-          .number { font-size: 40px; font-weight: 900; letter-spacing: .5px; margin: 3px 0 2px; }
-          .priority { font-size: 12px; font-weight: 900; color: #DC2626; margin-bottom: 2px; }
-          .name {
-            font-size: 10px; margin-bottom: 1px;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-          }
-          /* Near-black, not grey: this prints on a low-resolution thermal head
-             and the previous #374151 at 7px was already faint on screen. */
-          .small { font-size: 8px; color: #1F2937; line-height: 1.2; margin-top: 3px; }
-          .line { border-top: 1px dashed #6B7280; margin: 3px 0; }
+          @page { size: 80mm auto; margin: 4mm; }
+          body { font-family: Arial, sans-serif; text-align: center; margin: 0; color: #111827; }
+          .org { font-size: 13px; font-weight: 800; margin-top: 8px; }
+          .service { font-size: 14px; margin-top: 8px; }
+          .number { font-size: 42px; font-weight: 900; letter-spacing: 1px; margin: 14px 0; }
+          .priority { font-size: 16px; font-weight: 900; color: #DC2626; margin-bottom: 8px; }
+          .name { font-size: 13px; margin-bottom: 4px; }
+          .small { font-size: 11px; color: #374151; margin-top: 8px; }
+          .line { border-top: 1px dashed #9CA3AF; margin: 10px 0; }
         </style>
       </head>
       <body>
