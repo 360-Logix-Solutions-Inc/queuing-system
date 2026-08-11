@@ -86,13 +86,24 @@ export default function DisplayApp() {
     const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
     sync();
     document.addEventListener("fullscreenchange", sync);
-    const hide = setTimeout(() => setControlsVisible(false), CONTROLS_IDLE_MS);
     return () => {
       document.removeEventListener("fullscreenchange", sync);
-      clearTimeout(hide);
       clearTimeout(idleTimer.current);
     };
   }, []);
+
+  // Hide it only ONCE full screen is on. Before that the board still has
+  // browser chrome around it, so a clean screen is not the point yet — being
+  // findable is, and a control nobody can see is a control nobody will use.
+  useEffect(() => {
+    clearTimeout(idleTimer.current);
+    if (!isFullscreen) {
+      setControlsVisible(true);
+      return undefined;
+    }
+    idleTimer.current = setTimeout(() => setControlsVisible(false), CONTROLS_IDLE_MS);
+    return () => clearTimeout(idleTimer.current);
+  }, [isFullscreen]);
 
   const audioCtxRef = useRef(null);
   const prevCountersRef = useRef(new Map());
@@ -265,7 +276,10 @@ export default function DisplayApp() {
   function showControls() {
     setControlsVisible(true);
     clearTimeout(idleTimer.current);
-    idleTimer.current = setTimeout(() => setControlsVisible(false), CONTROLS_IDLE_MS);
+    // Only re-arm the fade while full screen; otherwise it stays put.
+    if (document.fullscreenElement) {
+      idleTimer.current = setTimeout(() => setControlsVisible(false), CONTROLS_IDLE_MS);
+    }
   }
 
   function toggleFullscreen() {
