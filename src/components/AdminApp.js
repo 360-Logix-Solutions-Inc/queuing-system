@@ -269,7 +269,7 @@ export default function AdminApp() {
     return (
       <main className="page auth-page">
         <form className="auth-panel" onSubmit={handleLogin}>
-          <h1 className="auth-title">Queue Account Login</h1>
+          <h1 className="auth-title">Queuing System Account Login</h1>
           <input
             placeholder="Email"
             className={loginField === "email" ? "field-active" : ""}
