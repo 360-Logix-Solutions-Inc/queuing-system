@@ -20,6 +20,7 @@ import {
   limit,
   onSnapshot,
   getDocs,
+  setLogLevel,
 } from "firebase/firestore";
 import bcrypt from "bcryptjs";
 import { getConfig } from "./queueApp";
@@ -42,6 +43,26 @@ function getFirestoreWithCache(readyApp) {
     // Firestore was already initialized on this app instance — reuse it.
     return getFirestore(readyApp);
   }
+}
+
+// Losing the internet is a NORMAL state for this app, not a fault: the cache
+// serves reads and writes queue up. Firestore does not see it that way — it
+// logs every failed reconnect of every listen stream at ERROR level, forever,
+// with backoff. On a terminal that sits offline for hours that is endless noise
+// in the log file, and in `next dev` each one raises the red error overlay.
+//
+// So the SDK is muted while offline and turned back up on reconnect, which
+// keeps genuine online failures visible instead of blanket-silencing them.
+let loggingBound = false;
+
+function bindFirestoreLogLevel() {
+  if (loggingBound || typeof window === "undefined") return;
+  loggingBound = true;
+  const quiet = () => setLogLevel("silent");
+  const loud = () => setLogLevel("error");
+  if (navigator.onLine === false) quiet(); else loud();
+  window.addEventListener("offline", quiet);
+  window.addEventListener("online", loud);
 }
 
 export const SERVICES = [
@@ -151,6 +172,7 @@ export async function initFirebase(clientId = DEFAULT_CLIENT_ID) {
   }
   app = getApps()[0] || initializeApp(appConfig.firebase);
   db = getFirestoreWithCache(app);
+  bindFirestoreLogLevel();
   await ensureClientDefaults(clientId);
   return { db, appConfig };
 }
@@ -232,6 +254,7 @@ async function initFirebaseNoEnsure() {
   }
   app = getApps()[0] || initializeApp(appConfig.firebase);
   db = getFirestoreWithCache(app);
+  bindFirestoreLogLevel();
   return { db, appConfig };
 }
 
