@@ -88,6 +88,8 @@ const STRINGS = {
     offline: "Offline mode",
     offlineHint: "The queue still works. Changes sync when the internet returns.",
     shift: "Shift",
+    fullscreen: "Full screen",
+    exitFullscreen: "Exit full screen",
     smsQueued: "SMS will be sent once the internet returns.",
   },
 
@@ -152,6 +154,8 @@ const STRINGS = {
     offline: "Offline mode",
     offlineHint: "Gumagana pa rin ang pila. Mag-sisync ang mga pagbabago kapag bumalik ang internet.",
     shift: "Shift",
+    fullscreen: "Full screen",
+    exitFullscreen: "Lumabas sa full screen",
     smsQueued: "Ipapadala ang SMS kapag bumalik ang internet.",
   },
 
@@ -217,6 +221,8 @@ const STRINGS = {
     offline: "Offline mode",
     offlineHint: "Nagaandar gihapon ang pila. Mag-sync ang mga pagbag-o kon magbalik ang internet.",
     shift: "Shift",
+    fullscreen: "Full screen",
+    exitFullscreen: "Magguwa sa full screen",
     smsQueued: "Ipadara ang SMS kon magbalik run ang internet.",
   },
 
@@ -282,6 +288,8 @@ const STRINGS = {
     offline: "Offline mode",
     offlineHint: "Nagaandar gihapon ang pila. Mag-sync ang mga pagbag-o kung magbayik ang internet.",
     shift: "Shift",
+    fullscreen: "Full screen",
+    exitFullscreen: "Magguwa sa full screen",
     smsQueued: "Ipadaya ang SMS kung magbayik ra ang internet.",
   },
 
@@ -347,6 +355,8 @@ const STRINGS = {
     offline: "Offline mode",
     offlineHint: "Nagaandar gihapon ang pila. Mag-sync ang mga pagbag-o kon magbalik ang internet.",
     shift: "Shift",
+    fullscreen: "Full screen",
+    exitFullscreen: "Magguwa sa full screen",
     smsQueued: "Ipadara ang SMS kon magbalik ron ang internet.",
   },
 

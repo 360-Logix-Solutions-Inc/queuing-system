@@ -81,6 +81,8 @@ export default function KioskApp() {
   // physical keyboard, so without this the name and phone cannot be filled in.
   const [activeField, setActiveField] = useState(null);
   const [online, setOnline] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenSupported, setFullscreenSupported] = useState(false);
 
   const t = (key) => kioskT(lang, key);
 
@@ -155,6 +157,27 @@ export default function KioskApp() {
   // A full-width bar rather than a badge in the corner: on a public terminal
   // the offline state has to be unmissable to both the customer and the clerk
   // walking past. Translated, unlike the app-wide banner it replaces here.
+  // Browser chrome and the Windows taskbar have no business on a public
+  // terminal. Tracked from the fullscreenchange event rather than from our own
+  // clicks, so the label stays right when the user leaves with Escape or F11.
+  useEffect(() => {
+    setFullscreenSupported(Boolean(document.documentElement.requestFullscreen));
+    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    sync();
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  function toggleFullscreen() {
+    // Both calls need a user gesture and reject if the browser refuses; a
+    // failure must not take the button down with it.
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    } else {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+  }
+
   const offlineBanner = online ? null : (
     <div className="kiosk-offline" role="status" aria-live="polite">
       <span className="kiosk-offline-dot" aria-hidden="true" />
@@ -266,6 +289,9 @@ export default function KioskApp() {
           speechOn={speechOn}
           onSpeechToggle={toggleSpeech}
           onSpeakAgain={speakScreen}
+          fullscreenSupported={fullscreenSupported}
+          isFullscreen={isFullscreen}
+          onFullscreenToggle={toggleFullscreen}
         />
         {/* Rendered here, outside .kiosk-zoom-area: a position:fixed element
             inside a zoomed subtree resolves against the zoomed viewport and
