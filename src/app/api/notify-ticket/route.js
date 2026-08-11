@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { isSmsConfigured, normalizePhone, sendSemaphoreSms } from "../../../lib/smsSender";
 import { getClientSmsTemplates, getWaitContext, formatWaitMinutes, logSms } from "../../../lib/firebaseServer";
 import { DEFAULT_SMS_TEMPLATES, renderTemplate } from "../../../lib/smsTemplates";
@@ -88,12 +88,22 @@ export async function POST(req) {
       orgName: payload.orgName,
     });
 
-    // The audit log must not gate the reply — it is another Firestore write on
-    // the same client SDK that can hang. Fire it and answer the caller.
+    // The audit log must not gate the reply, but it must still happen. Firing it
+    // and returning immediately loses the write: once the response is sent the
+    // request context can be torn down with the Firestore call still in flight,
+    // which is why smsLogs was empty while texts were arriving. `after` runs the
+    // work post-response and keeps the invocation alive until it finishes.
     const record = (status, error) => {
-      Promise.resolve(
-        logSms({ clientId, type, phone, message, status, error, queueNumber: payload.queueNumber })
-      ).catch(() => { /* logging is best-effort */ });
+      after(async () => {
+        try {
+          await withTimeout(
+            logSms({ clientId, type, phone, message, status, error, queueNumber: payload.queueNumber }),
+            FIRESTORE_TIMEOUT_MS,
+            null,
+            "logSms"
+          );
+        } catch (_) { /* the log is best-effort; the SMS already went */ }
+      });
     };
 
     try {

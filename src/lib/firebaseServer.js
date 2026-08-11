@@ -26,6 +26,12 @@ export function getServerDb() {
     appId: process.env.FIREBASE_APP_ID,
   };
   const app = getApps()[0] || initializeApp(config);
+  // NOTE: `firebase` must stay in serverExternalPackages (next.config.mjs).
+  // Bundled into the server, the browser build gets resolved: reads negotiate
+  // fine but writes never complete — measured, addDoc still pending after 12s
+  // while the identical write from plain Node returned in under a second. That
+  // is why smsLogs sat empty while texts were going out. Required at runtime
+  // from node_modules instead, the same write lands in ~900ms.
   _db = getFirestore(app);
   return _db;
 }
