@@ -15,6 +15,9 @@ export default function KioskAccessibilityBar({
   speechOn,
   onSpeechToggle,
   onSpeakAgain,
+  fullscreenSupported,
+  isFullscreen,
+  onFullscreenToggle,
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const t = (key) => kioskT(lang, key);
@@ -108,6 +111,22 @@ export default function KioskAccessibilityBar({
                 </button>
               ) : null}
             </div>
+          </>
+        ) : null}
+
+        {fullscreenSupported ? (
+          <>
+            <span className="a11y-divider" aria-hidden="true" />
+            <button
+              type="button"
+              className="a11y-btn a11y-btn--wide"
+              aria-pressed={isFullscreen}
+              onClick={onFullscreenToggle}
+              aria-label={isFullscreen ? t("exitFullscreen") : t("fullscreen")}
+            >
+              <span className="a11y-icon" aria-hidden="true">{isFullscreen ? "⤡" : "⛶"}</span>
+              <span>{isFullscreen ? t("exitFullscreen") : t("fullscreen")}</span>
+            </button>
           </>
         ) : null}
       </div>
