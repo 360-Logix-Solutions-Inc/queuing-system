@@ -62,6 +62,9 @@ function getTimestampKey(value) {
   return String(value);
 }
 
+// How long the board sits untouched before the full-screen control fades out.
+const CONTROLS_IDLE_MS = 4000;
+
 export default function DisplayApp() {
   const [orgName, setOrgName] = useState("");
   const [logo, setLogo] = useState(null);
@@ -71,6 +74,25 @@ export default function DisplayApp() {
   const [now, setNow] = useState(null);
   const [setupError, setSetupError] = useState("");
   const [audioReady, setAudioReady] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fullscreenSupported, setFullscreenSupported] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const idleTimer = useRef(null);
+
+  // Read from the event, not from our own clicks, so the label stays right when
+  // the board is taken out of full screen with Escape or F11.
+  useEffect(() => {
+    setFullscreenSupported(Boolean(document.documentElement.requestFullscreen));
+    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    sync();
+    document.addEventListener("fullscreenchange", sync);
+    const hide = setTimeout(() => setControlsVisible(false), CONTROLS_IDLE_MS);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      clearTimeout(hide);
+      clearTimeout(idleTimer.current);
+    };
+  }, []);
 
   const audioCtxRef = useRef(null);
   const prevCountersRef = useRef(new Map());
@@ -240,13 +262,53 @@ export default function DisplayApp() {
   const total = sorted.length;
   const servingCount = sorted.filter((counter) => counter.currentTicketId).length;
 
+  function showControls() {
+    setControlsVisible(true);
+    clearTimeout(idleTimer.current);
+    idleTimer.current = setTimeout(() => setControlsVisible(false), CONTROLS_IDLE_MS);
+  }
+
+  function toggleFullscreen() {
+    showControls();
+    // Both calls need a user gesture and can be refused; a rejection must not
+    // take the button down with it.
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    } else {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+  }
+
   const themeStyle = themeColor ? { "--brand-accent": themeColor } : undefined;
   return (
-    <main className="display-page" style={themeStyle}>
+    <main
+      className="display-page"
+      style={themeStyle}
+      onMouseMove={showControls}
+      onTouchStart={showControls}
+    >
       {!audioReady ? (
         <button className="audio-enable" onClick={enableAudio}>
           <span className="audio-enable-icon">♪</span>
           <span>Tap to enable announcements</span>
+        </button>
+      ) : null}
+
+      {/* A wall board is read from across the room, so this fades out once
+          nobody is touching it and comes back on the next move or tap. */}
+      {fullscreenSupported ? (
+        <button
+          type="button"
+          className={`display-fullscreen ${controlsVisible ? "" : "is-idle"}`}
+          onClick={toggleFullscreen}
+          aria-pressed={isFullscreen}
+          aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
+          title={isFullscreen ? "Exit full screen" : "Full screen"}
+        >
+          <span aria-hidden="true">{isFullscreen ? "⤡" : "⛶"}</span>
+          <span className="display-fullscreen-label">
+            {isFullscreen ? "Exit full screen" : "Full screen"}
+          </span>
         </button>
       ) : null}
       <header className="display-header">

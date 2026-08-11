@@ -4347,6 +4347,39 @@ a { color: inherit; text-decoration: none; }
   font-style: normal; font-weight: 700;
 }
 
+/* ====== DISPLAY BOARD: FULL-SCREEN CONTROL ====== */
+
+/* Deliberately quiet. The board is read from across a room, so this fades out
+   once nobody is touching it and returns on the next move or tap. */
+.display-fullscreen {
+  position: fixed;
+  right: 18px; bottom: 18px;
+  z-index: 80;
+  display: inline-flex; align-items: center; gap: 10px;
+  min-height: 48px; padding: 0 18px;
+  border-radius: 999px;
+  background: rgba(15,23,42,.72);
+  border: 1px solid rgba(255,255,255,.22);
+  color: #F8FAFC;
+  font-size: 15px; font-weight: 700;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  transition: opacity .4s var(--ease), transform .4s var(--ease);
+}
+.display-fullscreen:hover { background: rgba(15,23,42,.9); }
+.display-fullscreen:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
+.display-fullscreen.is-idle {
+  opacity: 0;
+  transform: translateY(8px);
+  /* Still reachable: a tap anywhere brings it back before it can be pressed. */
+  pointer-events: none;
+}
+
+@media (max-width: 700px) {
+  .display-fullscreen-label { display: none; }
+  .display-fullscreen { padding: 0 14px; }
+}
+
 /* ====== OFFLINE INDICATOR ====== */
 
 /* Amber, not red: the queue keeps working offline — Firestore serves from its
