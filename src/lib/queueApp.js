@@ -17,12 +17,12 @@ function buildTicketHtml(ticket) {
         <meta charset="UTF-8" />
         <title>Queue Ticket</title>
         <style>
-          /* Ticket stock is 3in WIDE by 2in TALL. Fixed page, zero page margin:
-             the sheet is die-cut, so the layout has to fit rather than grow —
-             overflow is not extra paper, it falls off the edge. Landscape buys
-             width, which keeps the org and service names on one line each and
-             leaves the vertical budget to the queue number. Sizes are tuned
-             against the measured worst case; see electron/main.js. */
+          /* Label stock is 3in ACROSS by 2in DOWN, text reading upright along
+             the width. Fixed page, zero page margin: the label is pre-cut, so
+             the layout has to fit rather than grow — overflow is not extra
+             paper, it falls off the edge, and a size the driver rejects gets
+             tiled across several labels. Sizes are tuned against the measured
+             worst case; the page itself is set in electron/main.js. */
           @page { size: 76.2mm 50.8mm; margin: 0; }
           html, body { margin: 0; padding: 0; }
           body {
@@ -50,7 +50,7 @@ function buildTicketHtml(ticket) {
           }
           /* Near-black, not grey: this prints on a low-resolution thermal head
              and the previous #374151 at 7px was already faint on screen. */
-          .small { font-size: 8px; color: #1F2937; line-height: 1.2; margin-top: 2px; }
+          .small { font-size: 8px; color: #1F2937; line-height: 1.2; margin-top: 3px; }
           .line { border-top: 1px dashed #6B7280; margin: 3px 0; }
         </style>
       </head>

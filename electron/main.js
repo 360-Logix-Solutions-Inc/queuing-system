@@ -219,9 +219,13 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// Ticket stock is 3in wide by 2in tall — landscape, not portrait. Fixed, not a
-// roll: the sheet is already cut to size, so the page must match it exactly and
-// the layout has to fit inside rather than grow to suit the content.
+// Label stock is 3in ACROSS by 2in DOWN, and the text must read upright along
+// that 3in width — `landscape: false` below means "do not rotate", not "make it
+// taller than wide"; the shape comes from pageSize.
+//
+// Pre-cut labels, not a roll: the page must match the label exactly. A size the
+// driver rejects sends Chromium back to its default paper, which tiled one
+// ticket across six labels, rotated, with its own header printed on them.
 const PAPER_WIDTH_MICRONS = 76200;    // 3in across
 const PAPER_HEIGHT_MICRONS = 50800;   // 2in down
 // Electron wants microns; the DOM measures in CSS px at 96dpi.
@@ -264,6 +268,18 @@ ipcMain.handle("queue:silent-print", async (_event, html) => {
           deviceName: PRINTER_NAME,
           margins: { marginType: "none" },
           pageSize: { width: PAPER_WIDTH_MICRONS, height: PAPER_HEIGHT_MICRONS },
+          landscape: false,
+          // Do not let the driver shrink-to-fit; the layout is already exact.
+          scaleFactor: 100,
+          copies: 1,
+          pagesPerSheet: 1,
+          collate: false,
+          // The hard guard. One ticket must never consume more than one label,
+          // and a page-size mismatch silently paginates: a rejected custom size
+          // falls back to Letter, which tiled a single ticket across SIX labels
+          // — rotated, with Chromium's own header and date printed on them.
+          // Even if layout paginates again, only the first page reaches paper.
+          pageRanges: [{ from: 0, to: 0 }],
         },
         (success, failureReason) => {
           try { printWindow.close(); } catch (_) {}
