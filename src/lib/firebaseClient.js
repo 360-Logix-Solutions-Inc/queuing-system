@@ -487,7 +487,9 @@ function isOfflineError(err) {
   );
 }
 
-async function issueTicketOnline({ db, sequenceRef, service, buildTicket, appConfig }) {
+async function issueTicketOnline({
+  db, sequenceRef, service, serviceDate, normalizedClientId, buildTicket, appConfig,
+}) {
   return runTransaction(db, async (tx) => {
     const sequenceSnap = await tx.get(sequenceRef);
     const current = sequenceSnap.exists() ? Number(sequenceSnap.data().lastNumber || 0) : 0;

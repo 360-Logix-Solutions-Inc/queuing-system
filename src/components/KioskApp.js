@@ -152,13 +152,14 @@ export default function KioskApp() {
     };
   }, []);
 
-  const offlinePill = online ? null : (
+  // A full-width bar rather than a badge in the corner: on a public terminal
+  // the offline state has to be unmissable to both the customer and the clerk
+  // walking past. Translated, unlike the app-wide banner it replaces here.
+  const offlineBanner = online ? null : (
     <div className="kiosk-offline" role="status" aria-live="polite">
       <span className="kiosk-offline-dot" aria-hidden="true" />
-      <span className="kiosk-offline-text">
-        <strong>{t("offline")}</strong>
-        <span>{t("offlineHint")}</span>
-      </span>
+      <strong>{t("offline")}</strong>
+      <span className="kiosk-offline-hint">{t("offlineHint")}</span>
     </div>
   );
 
@@ -244,7 +245,7 @@ export default function KioskApp() {
   function withKioskShell(content) {
     return (
       <div
-        className={`kiosk-root ${activeField ? "keyboard-open" : ""}`}
+        className={`kiosk-root ${activeField ? "keyboard-open" : ""} ${online ? "" : "is-offline"}`}
         style={{
           "--kiosk-zoom": ZOOM_LEVELS[zoomIndex],
           // The control bar grows too — someone who needs 150% text has to be
@@ -252,6 +253,9 @@ export default function KioskApp() {
           "--kiosk-ui-zoom": Math.min(ZOOM_LEVELS[zoomIndex], 1.25),
         }}
       >
+        {/* Outside the zoomed area so the bar keeps a constant height whatever
+            the text-size setting is — the padding below it is fixed to match. */}
+        {offlineBanner}
         <div className="kiosk-zoom-area">{content}</div>
         <KioskAccessibilityBar
           lang={lang}
@@ -479,7 +483,6 @@ export default function KioskApp() {
             {logo ? <img src={logo} alt="" style={{ height: "1.5em", width: "1.5em", objectFit: "contain", borderRadius: 4 }} /> : <span className="brand-dot" />}
             <span>{orgName || "Queuing System"}</span>
           </div>
-          {offlinePill}
         </div>
         <div className="kiosk-services">
           <h1 className="kiosk-heading">{t("servicesTitle")}</h1>
@@ -515,7 +518,6 @@ export default function KioskApp() {
             {logo ? <img src={logo} alt="" style={{ height: "1.5em", width: "1.5em", objectFit: "contain", borderRadius: 4 }} /> : <span className="brand-dot" />}
             <span>{orgName || "Queuing System"}</span>
           </div>
-          {offlinePill}
         </div>
         <div className="form-wrap">
           <div className="panel">
@@ -682,12 +684,9 @@ export default function KioskApp() {
           <span className="brand-dot" aria-hidden="true" />
           <span>{orgName || "Queuing System"}</span>
         </div>
-        <div className="kiosk-start-status">
-          {offlinePill}
-          <div className="kiosk-clock" suppressHydrationWarning>
-            <div className="kiosk-time tabular">{now ? formatStartTime(now) : "--:--"}</div>
-            <div className="kiosk-date">{now ? formatStartDate(now, languageLocale(lang)) : ""}</div>
-          </div>
+        <div className="kiosk-clock" suppressHydrationWarning>
+          <div className="kiosk-time tabular">{now ? formatStartTime(now) : "--:--"}</div>
+          <div className="kiosk-date">{now ? formatStartDate(now, languageLocale(lang)) : ""}</div>
         </div>
       </header>
 
